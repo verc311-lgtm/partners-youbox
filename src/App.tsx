@@ -352,6 +352,55 @@ export default function App() {
     }
   }, [currentUser?.id]);
 
+
+
+  // Chart Data
+  const volumeData = [
+    { name: 'Lun', volume: 12 },
+    { name: 'Mar', volume: 19 },
+    { name: 'Mie', volume: 8 },
+    { name: 'Jue', volume: 15 },
+    { name: 'Vie', volume: 22 },
+    { name: 'Sab', volume: 30 },
+    { name: 'Dom', volume: 10 },
+  ];
+
+  const sourceData = [
+    { name: 'Laredo', value: 65, color: '#FF6B00' },
+    { name: 'México', value: 35, color: '#FF8A00' },
+  ];
+
+  // Logic: Calculate level based on volume
+  const currentLevel = useMemo(() => {
+    if (!currentUser) return UserLevel.EXPLORADOR;
+    if (currentUser.totalLbsThisMonth > 30) return UserLevel.MASTER_BOX;
+    if (currentUser.totalLbsThisMonth >= 11) return UserLevel.EMPRENDEDOR;
+    return UserLevel.EXPLORADOR;
+  }, [currentUser?.totalLbsThisMonth]);
+
+  // Sync levels if needed (simulating backend trigger)
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.totalLbsThisMonth === 15 && currentUser.level === UserLevel.MASTER_BOX) return;
+    
+    if (currentLevel !== currentUser.level) {
+      setCurrentUser(prev => prev ? { ...prev, level: currentLevel } : null);
+    }
+  }, [currentLevel, currentUser?.level, currentUser?.totalLbsThisMonth]);
+
+  const levelProgress = useMemo(() => {
+    if (!currentUser) return { percentage: 0, remaining: 0 };
+    const nextLevel = currentUser.level === UserLevel.EXPLORADOR ? UserLevel.EMPRENDEDOR : 
+                     currentUser.level === UserLevel.EMPRENDEDOR ? UserLevel.MASTER_BOX : null;
+    
+    if (!nextLevel) return { percentage: 100, remaining: 0 };
+    
+    const nextConfig = LEVEL_MAP[nextLevel];
+    const target = nextConfig.minLbs;
+    const progress = Math.min((currentUser.totalLbsThisMonth / target) * 100, 100);
+    return { percentage: progress, remaining: target - currentUser.totalLbsThisMonth };
+  }, [currentUser?.level, currentUser?.totalLbsThisMonth]);
+
   // --- AUTH SCREENS ---
   if (!currentUser) {
     return (
@@ -475,50 +524,6 @@ export default function App() {
   }
 
   // --- MAIN APP (authenticated + verified) ---
-
-  // Chart Data
-  const volumeData = [
-    { name: 'Lun', volume: 12 },
-    { name: 'Mar', volume: 19 },
-    { name: 'Mie', volume: 8 },
-    { name: 'Jue', volume: 15 },
-    { name: 'Vie', volume: 22 },
-    { name: 'Sab', volume: 30 },
-    { name: 'Dom', volume: 10 },
-  ];
-
-  const sourceData = [
-    { name: 'Laredo', value: 65, color: '#FF6B00' },
-    { name: 'México', value: 35, color: '#FF8A00' },
-  ];
-
-  // Logic: Calculate level based on volume
-  const currentLevel = useMemo(() => {
-    if (currentUser.totalLbsThisMonth > 30) return UserLevel.MASTER_BOX;
-    if (currentUser.totalLbsThisMonth >= 11) return UserLevel.EMPRENDEDOR;
-    return UserLevel.EXPLORADOR;
-  }, [currentUser.totalLbsThisMonth]);
-
-  // Sync levels if needed (simulating backend trigger)
-  useEffect(() => {
-    if (currentUser.totalLbsThisMonth === 15 && currentUser.level === UserLevel.MASTER_BOX) return;
-    
-    if (currentLevel !== currentUser.level) {
-      setCurrentUser(prev => ({ ...prev, level: currentLevel }));
-    }
-  }, [currentLevel, currentUser.level, currentUser.totalLbsThisMonth]);
-
-  const levelProgress = useMemo(() => {
-    const nextLevel = currentUser.level === UserLevel.EXPLORADOR ? UserLevel.EMPRENDEDOR : 
-                     currentUser.level === UserLevel.EMPRENDEDOR ? UserLevel.MASTER_BOX : null;
-    
-    if (!nextLevel) return { percentage: 100, remaining: 0 };
-    
-    const nextConfig = LEVEL_MAP[nextLevel];
-    const target = nextConfig.minLbs;
-    const progress = Math.min((currentUser.totalLbsThisMonth / target) * 100, 100);
-    return { percentage: progress, remaining: target - currentUser.totalLbsThisMonth };
-  }, [currentUser.level, currentUser.totalLbsThisMonth]);
 
   const handleRegisterPackage = (weight: number, origin: Origin, tracking: string) => {
     const rate = LEVEL_MAP[currentUser.level].rates[origin];
