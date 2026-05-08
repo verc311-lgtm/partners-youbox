@@ -102,6 +102,7 @@ export interface UserProfile {
   registeredAt: string;
   gracePeriodEnd: string; // 2 months after registration — Master Box grace
   acceptedTerms: boolean;
+  password?: string; // Hashed password in real life, plaintext for demo
   notifications: Notification[];
 }
 

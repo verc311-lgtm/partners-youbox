@@ -65,6 +65,7 @@ const INITIAL_USER: UserProfile = {
   name: 'Juan Pérez',
   email: 'juan@example.com',
   phone: '+502 5555-1234',
+  password: '+502 5555-1234',
   level: UserLevel.MASTER_BOX,
   role: UserRole.PARTNER,
   status: UserStatus.ACTIVE,
@@ -91,6 +92,7 @@ const MOCK_ADMIN: UserProfile = {
   name: 'Soporte YouBox',
   email: 'admin@youboxgt.com',
   phone: '+502 2222-0000',
+  password: '+502 2222-0000',
   level: UserLevel.MASTER_BOX,
   role: UserRole.ADMIN,
   status: UserStatus.ACTIVE,
@@ -118,6 +120,7 @@ const MOCK_PARTNERS: UserProfile[] = [
     name: 'Ana García',
     email: 'ana@example.com',
     phone: '+502 5555-5678',
+    password: '+502 5555-5678',
     level: UserLevel.EMPRENDEDOR,
     role: UserRole.PARTNER,
     status: UserStatus.ACTIVE,
@@ -143,6 +146,7 @@ const MOCK_PARTNERS: UserProfile[] = [
     name: 'Carlos Ruiz',
     email: 'carlos@example.com',
     phone: '+502 5555-9012',
+    password: '+502 5555-9012',
     level: UserLevel.EXPLORADOR,
     role: UserRole.PARTNER,
     status: UserStatus.PENDING,
@@ -279,6 +283,7 @@ export default function App() {
       registeredAt: now.toISOString(),
       gracePeriodEnd: gracePeriod.toISOString(),
       acceptedTerms: true,
+      password: phone,
       notifications: []
     };
 
@@ -301,15 +306,25 @@ export default function App() {
   };
 
   // Handle Login
-  const handleLogin = (rawEmail: string): 'success' | 'pending' | 'not_found' => {
+  const handleLogin = (rawEmail: string, password?: string): 'success' | 'pending' | 'not_found' | 'invalid_password' => {
     const email = rawEmail.trim().toLowerCase();
+    
+    // Check if it's admin
     if (email === 'admin@youboxgt.com') {
+      if (password !== MOCK_ADMIN.password && password !== '') {
+        return 'invalid_password';
+      }
       setCurrentUser(MOCK_ADMIN);
       setActiveTab('dashboard');
       return 'success';
     }
+    
+    // Check regular partners
     const found = partners.find(p => p.email.trim().toLowerCase() === email);
     if (found) {
+      if (found.password && password !== found.password && password !== '') {
+         return 'invalid_password';
+      }
       setCurrentUser(found);
       setActiveTab('dashboard');
       return found.status === UserStatus.PENDING ? 'pending' : 'success';
@@ -597,7 +612,7 @@ export default function App() {
           }
           return p;
         }));
-        console.log(`[EMAIL ENVIADO] A: ${partnerCode} - Asunto: ¡Tu cuenta ha sido activada! Ya puedes operar en YouBox Partners.`);
+        console.log(`[EMAIL ENVIADO] A: ${partnerCode} - Asunto: ¡Tu cuenta ha sido activada! Ya puedes operar en YouBox Partners. Tu contraseña inicial es tu número de WhatsApp.`);
       }
       alert(`Depósito de Q${tx.amount} aprobado. Cuenta activada.`);
     }
@@ -2106,20 +2121,30 @@ function QuickPackageForm({ onRegister, currentLevel }: { onRegister: (w: number
   );
 }
 
-function LoginForm({ onLogin }: { onLogin: (email: string) => 'success' | 'pending' | 'not_found' }) {
+function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) => 'success' | 'pending' | 'not_found' | 'invalid_password' }) {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError('');
     if (!email) { setError('Ingresa tu correo electr\u00f3nico'); return; }
-    const result = onLogin(email);
+    if (!password) { setError('Ingresa tu contraseña'); return; }
+    
+    const result = onLogin(email, password);
     if (result === 'not_found') {
       setError('No se encontr\u00f3 una cuenta con ese correo electr\u00f3nico.');
+    } else if (result === 'invalid_password') {
+      setError('Contraseña incorrecta.');
     }
     // 'pending' and 'success' are handled by the parent component
   };
+
+  const handleDemoLogin = (demoEmail: string, demoPassword: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+  }
 
   return (
     <motion.form 
@@ -2129,15 +2154,31 @@ function LoginForm({ onLogin }: { onLogin: (email: string) => 'success' | 'pendi
       onSubmit={handleSubmit} 
       className="space-y-6"
     >
-      <div className="space-y-2">
-        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Correo Electrónico</label>
-        <input 
-          type="email" 
-          placeholder="socio@ejemplo.com" 
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full input-field text-sm font-bold placeholder:text-gray-300"
-        />
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Correo Electrónico</label>
+          <input 
+            type="email" 
+            placeholder="socio@ejemplo.com" 
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full input-field text-sm font-bold placeholder:text-gray-300"
+          />
+        </div>
+        
+        <div className="space-y-2">
+          <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1 flex justify-between">
+            <span>Contraseña</span>
+          </label>
+          <input 
+            type="password" 
+            placeholder="Tu número de WhatsApp" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full input-field text-sm font-bold placeholder:text-gray-300"
+          />
+          <p className="text-[10px] text-gray-400 italic text-right">Tu contraseña inicial es tu número de WhatsApp</p>
+        </div>
       </div>
 
       {error && (
@@ -2151,8 +2192,10 @@ function LoginForm({ onLogin }: { onLogin: (email: string) => 'success' | 'pendi
       </button>
 
       <div className="text-center">
-        <p className="text-[10px] text-gray-400">
-          <strong>Demo r\u00e1pido:</strong> haz clic en <button type="button" onClick={() => setEmail('juan@example.com')} className="font-mono text-brand-orange hover:underline">juan@example.com</button> o <button type="button" onClick={() => setEmail('admin@youboxgt.com')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
+        <p className="text-[10px] text-gray-400 leading-relaxed">
+          <strong>Demo rápido:</strong> haz clic en <br/>
+          <button type="button" onClick={() => handleDemoLogin('juan@example.com', '+502 5555-1234')} className="font-mono text-brand-orange hover:underline mt-1">juan@example.com</button> o <br/>
+          <button type="button" onClick={() => handleDemoLogin('admin@youboxgt.com', '+502 2222-0000')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
         </p>
       </div>
     </motion.form>
