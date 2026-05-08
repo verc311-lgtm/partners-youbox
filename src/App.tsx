@@ -278,6 +278,7 @@ export default function App() {
 
     const newPackage: PackageType = {
       id: `p-${Date.now()}`,
+      ownerId: currentUser.id,
       trackingNumber: tracking,
       weight,
       origin,
@@ -1363,62 +1364,75 @@ function AdminPartnersView({ partners }: { partners: UserProfile[] }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filtered.map(p => (
-          <div key={p.id} className="glass-card shadow-sm border-gray-100 overflow-hidden group">
-            <div className="p-6 space-y-6">
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center font-black text-xl text-brand-orange border border-gray-100">
-                    {p.name.charAt(0)}
+        {filtered.map(p => {
+          const referralCount = partners.filter(r => r.sponsorId === p.id).length;
+          return (
+            <div key={p.id} className="glass-card shadow-sm border-gray-100 overflow-hidden group">
+              <div className="p-6 space-y-6">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center font-black text-xl text-brand-orange border border-gray-100">
+                      {p.name.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-brand-gray-dark leading-tight">{p.name}</h3>
+                      <p className="text-xs text-gray-400">{p.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-brand-gray-dark leading-tight">{p.name}</h3>
-                    <p className="text-xs text-gray-400">{p.email}</p>
+                  <div className={cn(
+                    "px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border",
+                    p.isActive ? 'bg-green-50 text-green-600 border-green-200' : 'bg-yellow-50 text-yellow-600 border-yellow-200'
+                  )}>
+                    {p.isActive ? 'Activo' : 'Inactivo'}
                   </div>
                 </div>
-                <div className={cn(
-                  "px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border",
-                  p.status === 'active' ? 'bg-green-50 text-white border-green-200' : 'bg-yellow-50 text-yellow-600 border-yellow-200'
-                )}>
-                  {p.status}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Código</p>
+                    <p className="text-sm font-mono font-bold text-brand-gray-dark tracking-widest">{p.partnerCode}</p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Nivel</p>
+                    <p className="text-sm font-bold text-brand-orange">{p.level}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Volumen Mensual</span>
+                    <span className="font-bold text-brand-gray-dark">{p.totalLbsThisMonth} lbs</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Saldo Principal</span>
+                    <span className="font-bold text-brand-gray-dark">Q{p.walletBalance.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Saldo Referidos</span>
+                    <span className="font-bold text-indigo-600">Q{p.referralBalance.toFixed(2)}</span>
+                  </div>
+                  {p.frozenBalance > 0 && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-yellow-600">Saldo Congelado</span>
+                      <span className="font-bold text-yellow-600">Q{p.frozenBalance.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Miembros de Red</span>
+                    <span className="font-bold text-brand-gray-dark">{referralCount}</span>
+                  </div>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                  <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Código</p>
-                  <p className="text-sm font-mono font-bold text-brand-gray-dark tracking-widest">{p.partnerCode}</p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                  <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Nivel</p>
-                  <p className="text-sm font-bold text-brand-orange">{p.level}</p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-gray-400">Volumen Mensual</span>
-                  <span className="font-bold text-brand-gray-dark">{p.totalLbsThisMonth} lbs</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-gray-400">Saldo Billetera</span>
-                  <span className="font-bold text-brand-gray-dark">Q{p.walletBalance.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-gray-400">Miembros de Red</span>
-                  <span className="font-bold text-brand-gray-dark">14</span>
-                </div>
+              
+              <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-2">
+                <button className="flex-1 py-2 rounded-lg bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-brand-gray-dark hover:bg-gray-100 transition-colors">Ver Detalles</button>
+                <button className="px-3 py-2 rounded-lg bg-brand-orange/10 text-brand-orange hover:bg-brand-orange/20 transition-all">
+                  <ArrowUpRight size={14} />
+                </button>
               </div>
             </div>
-            
-            <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-2">
-              <button className="flex-1 py-2 rounded-lg bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-brand-gray-dark hover:bg-gray-100 transition-colors">Ver Detalles</button>
-              <button className="px-3 py-2 rounded-lg bg-brand-orange/10 text-brand-orange hover:bg-brand-orange/20 transition-all">
-                <ArrowUpRight size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1427,23 +1441,47 @@ function AdminPartnersView({ partners }: { partners: UserProfile[] }) {
 function AdminDashboard({ partners, transactions }: { partners: UserProfile[], transactions: Transaction[] }) {
   const stats = useMemo(() => {
     const totalBalance = partners.reduce((acc, p) => acc + p.walletBalance, 0);
+    const totalReferralBalance = partners.reduce((acc, p) => acc + p.referralBalance, 0);
+    const totalFrozen = partners.reduce((acc, p) => acc + p.frozenBalance, 0);
     const totalLbs = partners.reduce((acc, p) => acc + p.totalLbsThisMonth, 0);
+    const totalNetworkLbs = partners.reduce((acc, p) => acc + p.referralLbsThisMonth, 0);
     const pendingApprovals = transactions.filter(t => t.status === 'pending').length;
-    return { totalBalance, totalLbs, pendingApprovals, totalPartners: partners.length };
+    const commissions = transactions.filter(t => t.type === 'referral_commission');
+    const totalCommissionsPaid = commissions.reduce((acc, t) => acc + t.amount, 0);
+    return { totalBalance, totalReferralBalance, totalFrozen, totalLbs, totalNetworkLbs, pendingApprovals, totalPartners: partners.length, totalCommissionsPaid };
   }, [partners, transactions]);
 
   return (
     <div className="space-y-8">
       <header>
         <h1 className="text-3xl font-black text-brand-gray-dark italic">YouBox <span className="text-brand-orange">Command Center</span></h1>
-        <p className="text-gray-400">Visión global de socios y flujo de carga.</p>
+        <p className="text-gray-400">Visión global de socios, flujo de carga y el ecosistema de referidos.</p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard icon={<Users className="text-blue-500" size={24} />} label="Socios Totales" value={stats.totalPartners.toString()} footer="Registrados en plataforma" />
         <StatCard icon={<TrendingUp className="text-brand-orange" size={24} />} label="Volumen Global" value={`${stats.totalLbs} lbs`} footer="Este mes" />
-        <StatCard icon={<Wallet className="text-green-600" size={24} />} label="Capital Socios" value={`Q${stats.totalBalance.toLocaleString()}`} footer="Saldo total en billeteras" />
+        <StatCard icon={<Wallet className="text-green-600" size={24} />} label="Capital Socios" value={`Q${stats.totalBalance.toLocaleString()}`} footer="Saldo principal total" />
         <StatCard icon={<CheckCircle2 className="text-yellow-600" size={24} />} label="Pendientes" value={stats.pendingApprovals.toString()} footer="Cargas de saldo por validar" />
+      </div>
+
+      {/* Networking Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="glass-card p-6 border-l-4 border-indigo-500">
+          <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Comisiones Pagadas</p>
+          <p className="text-3xl font-black text-indigo-600">Q{stats.totalCommissionsPaid.toFixed(2)}</p>
+          <p className="text-[9px] text-gray-300 mt-1">Total acumulado de referidos</p>
+        </div>
+        <div className="glass-card p-6 border-l-4 border-blue-500">
+          <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">En Billeteras de Red</p>
+          <p className="text-3xl font-black text-blue-600">Q{stats.totalReferralBalance.toFixed(2)}</p>
+          <p className="text-[9px] text-gray-300 mt-1">Disponible para transferencia</p>
+        </div>
+        <div className="glass-card p-6 border-l-4 border-yellow-500">
+          <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-2">Saldo Congelado</p>
+          <p className="text-3xl font-black text-yellow-600">Q{stats.totalFrozen.toFixed(2)}</p>
+          <p className="text-[9px] text-gray-300 mt-1">Por socios inactivos</p>
+        </div>
       </div>
 
       <div className="glass-card p-8 shadow-sm">
@@ -1454,9 +1492,11 @@ function AdminDashboard({ partners, transactions }: { partners: UserProfile[], t
               <tr className="text-[10px] uppercase font-black tracking-widest text-gray-300 border-b border-gray-100">
                 <th className="pb-4">Socio</th>
                 <th className="pb-4">Volumen</th>
+                <th className="pb-4">Red (lbs)</th>
                 <th className="pb-4">Nivel</th>
                 <th className="pb-4">Status</th>
-                <th className="pb-4 text-right">Saldo</th>
+                <th className="pb-4 text-right">Saldo Principal</th>
+                <th className="pb-4 text-right">Saldo Red</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -1472,16 +1512,18 @@ function AdminDashboard({ partners, transactions }: { partners: UserProfile[], t
                     </div>
                   </td>
                   <td className="py-4 text-sm text-gray-600 font-mono italic">{p.totalLbsThisMonth} lbs</td>
+                  <td className="py-4 text-sm text-indigo-600 font-mono font-bold">{p.referralLbsThisMonth} lbs</td>
                   <td className="py-4">
                     <span className="text-[10px] font-black text-brand-orange uppercase tracking-wider">{p.level}</span>
                   </td>
                   <td className="py-4">
                     <div className="flex items-center gap-2">
-                       <div className={cn("w-1.5 h-1.5 rounded-full", p.status === 'active' ? 'bg-green-500' : 'bg-yellow-500')} />
-                       <span className="text-[10px] uppercase font-black tracking-wider text-gray-400">{p.status}</span>
+                       <div className={cn("w-1.5 h-1.5 rounded-full", p.isActive ? 'bg-green-500' : 'bg-yellow-500')} />
+                       <span className="text-[10px] uppercase font-black tracking-wider text-gray-400">{p.isActive ? 'Activo' : 'Inactivo'}</span>
                     </div>
                   </td>
                   <td className="py-4 text-right font-black text-sm text-brand-gray-dark">Q{p.walletBalance.toFixed(2)}</td>
+                  <td className="py-4 text-right font-bold text-sm text-indigo-600">Q{p.referralBalance.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
