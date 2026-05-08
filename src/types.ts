@@ -70,6 +70,15 @@ export enum UserRole {
   ADMIN = 'admin',
 }
 
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'frozen_commission' | 'bonus' | 'general';
+  isRead: boolean;
+  createdAt: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -90,6 +99,7 @@ export interface UserProfile {
   partnerCode: string; // e.g. YB-1234
   referralCode: string; // e.g. YBR-1234
   registeredAt: string;
+  notifications: Notification[];
 }
 
 export type PackageStatus = 'Registrado' | 'En Ruta' | 'Aduana' | 'Entregado' | 'PAGADO';

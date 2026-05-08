@@ -23,7 +23,9 @@ import {
   CreditCard,
   FileText,
   X,
-  PieChart
+  PieChart,
+  Bell,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -73,6 +75,7 @@ const INITIAL_USER: UserProfile = {
   totalEarnings: 2450.00,
   inTransitLbs: 8.5,
   registeredAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+  notifications: [],
 };
 
 const MOCK_ADMIN: UserProfile = {
@@ -94,6 +97,7 @@ const MOCK_ADMIN: UserProfile = {
   totalEarnings: 0,
   inTransitLbs: 0,
   registeredAt: new Date().toISOString(),
+  notifications: [],
 };
 
 const MOCK_PARTNERS: UserProfile[] = [
@@ -118,6 +122,7 @@ const MOCK_PARTNERS: UserProfile[] = [
     totalEarnings: 1100.00,
     inTransitLbs: 12,
     registeredAt: new Date(Date.now() - 86400000 * 15).toISOString(),
+    notifications: [],
   },
   {
     id: 'user-3',
@@ -139,6 +144,16 @@ const MOCK_PARTNERS: UserProfile[] = [
     totalEarnings: 0,
     inTransitLbs: 0,
     registeredAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+    notifications: [
+      {
+        id: 'n-1',
+        title: '¡Tienes dinero congelado!',
+        message: 'Un referido tuyo acaba de facturar. Tienes Q10.00 congelados. Activa tu cuenta para no perderlos.',
+        type: 'frozen_commission',
+        isRead: false,
+        createdAt: new Date(Date.now() - 3600000).toISOString()
+      }
+    ],
   }
 ];
 
@@ -183,6 +198,19 @@ export default function App() {
   const [packages, setPackages] = useState<PackageType[]>(INITIAL_PACKAGES);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'wallet' | 'packages' | 'referrals' | 'reports' | 'users' | 'approvals'>('dashboard');
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  // Unread notifications count
+  const unreadCount = currentUser.notifications.filter(n => !n.isRead).length;
+
+  const handleMarkNotificationsRead = () => {
+    const updatedUser = {
+      ...currentUser,
+      notifications: currentUser.notifications.map(n => ({ ...n, isRead: true }))
+    };
+    setCurrentUser(updatedUser);
+    setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
+  };
 
   // Toggle for Demo
   const toggleRole = () => {
@@ -316,20 +344,74 @@ export default function App() {
 
     // Update sponsor balance
     const updatedPartners = [...partners];
+    let newNotification = null;
+    let newBonusTx = null;
+    let bonusAmount = 0;
+
+    const previousVolume = sponsor.referralLbsThisMonth;
+    const newVolume = previousVolume + pkg.weight;
+
+    // Check gamification bonus (500 lbs threshold)
+    if (previousVolume < 500 && newVolume >= 500) {
+      bonusAmount = 100;
+      newBonusTx = {
+        id: `t-bonus-${Date.now()}`,
+        amount: bonusAmount,
+        type: 'referral_commission',
+        description: `Bono de Red por alcanzar 500 lbs!`,
+        createdAt: new Date().toISOString(),
+        status: 'completed'
+      };
+      // Send console email
+      console.log(`[EMAIL ENVIADO] A: ${sponsor.email} - Asunto: ¡Felicidades! Alcanzaste el Bono de Red de Q100`);
+    }
+
     if (sponsor.isActive) {
       updatedPartners[sponsorIndex] = {
         ...sponsor,
+        referralLbsThisMonth: newVolume,
+        walletBalance: sponsor.walletBalance + bonusAmount,
         referralBalance: sponsor.referralBalance + commissionAmount,
-        totalEarnings: sponsor.totalEarnings + commissionAmount,
-        earningsThisMonth: sponsor.earningsThisMonth + commissionAmount
+        totalEarnings: sponsor.totalEarnings + commissionAmount + bonusAmount,
+        earningsThisMonth: sponsor.earningsThisMonth + commissionAmount + bonusAmount,
+        notifications: bonusAmount > 0 ? [
+          {
+            id: `n-${Date.now()}`,
+            title: '¡Meta Alcanzada!',
+            message: 'Tu red ha superado las 500 lbs este mes. Has recibido un bono de Q100.00 en tu Saldo Principal.',
+            type: 'bonus',
+            isRead: false,
+            createdAt: new Date().toISOString()
+          },
+          ...sponsor.notifications
+        ] : sponsor.notifications
       };
     } else {
+      // Frozen logic
+      newNotification = {
+        id: `n-${Date.now()}`,
+        title: '¡Tienes dinero congelado!',
+        message: `Un referido tuyo facturó ${pkg.weight}lbs. Tienes Q${commissionAmount.toFixed(2)} congelados. ¡Activa tu cuenta!`,
+        type: 'frozen_commission',
+        isRead: false,
+        createdAt: new Date().toISOString()
+      };
+      console.log(`[EMAIL ENVIADO] A: ${sponsor.email} - Asunto: Dinero Congelado por inactividad`);
+
       updatedPartners[sponsorIndex] = {
         ...sponsor,
-        frozenBalance: sponsor.frozenBalance + commissionAmount
+        referralLbsThisMonth: newVolume,
+        frozenBalance: sponsor.frozenBalance + commissionAmount,
+        notifications: [newNotification, ...sponsor.notifications]
       };
     }
     setPartners(updatedPartners);
+
+    if (newBonusTx) {
+      setTransactions(prev => [newTx, newBonusTx, ...prev]);
+    } else {
+      setTransactions(prev => [newTx, ...prev]);
+    }
 
     // If current user is the sponsor, update their state too
     if (currentUser.id === sponsor.id) {
@@ -462,8 +544,67 @@ export default function App() {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-8 relative">
-        <div className="max-w-5xl mx-auto space-y-8">
+      <main className="flex-1 overflow-y-auto relative">
+        {/* Top Header with Notifications */}
+        <div className="sticky top-0 z-40 bg-gray-50/80 backdrop-blur-xl border-b border-gray-200 px-8 py-4 flex justify-end items-center">
+          <div className="relative">
+            <button 
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              className="p-2 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-brand-orange hover:border-brand-orange/30 transition-colors relative shadow-sm"
+            >
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            <AnimatePresence>
+              {isNotificationsOpen && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50"
+                >
+                  <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+                    <h3 className="font-bold text-brand-gray-dark text-sm">Notificaciones</h3>
+                    {unreadCount > 0 && (
+                      <button onClick={handleMarkNotificationsRead} className="text-[10px] font-bold text-brand-orange hover:underline">
+                        Marcar leídas
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                    {currentUser.notifications.length === 0 ? (
+                      <div className="p-8 text-center text-gray-400 text-xs">
+                        No tienes notificaciones
+                      </div>
+                    ) : (
+                      currentUser.notifications.map(n => (
+                        <div key={n.id} className={`p-4 hover:bg-gray-50 transition-colors ${!n.isRead ? 'bg-orange-50/30' : ''}`}>
+                          <div className="flex gap-3">
+                            <div className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${!n.isRead ? 'bg-brand-orange' : 'bg-gray-300'}`} />
+                            <div>
+                              <p className="text-xs font-bold text-brand-gray-dark mb-1">{n.title}</p>
+                              <p className="text-[11px] text-gray-500 leading-relaxed mb-2">{n.message}</p>
+                              <p className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">
+                                {new Date(n.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        <div className="p-8 max-w-5xl mx-auto space-y-8">
           
           <AnimatePresence mode="wait">
             {/* Admin Dashboard */}
@@ -617,41 +758,80 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Recent Activity Switcher */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="glass-card p-6 shadow-sm">
-                    <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-brand-gray-dark">
-                       <PlusCircle size={20} className="text-brand-orange" />
-                       Registrar Paquete
-                    </h3>
-                    <QuickPackageForm onRegister={handleRegisterPackage} currentLevel={currentUser.level} />
-                  </div>
-                  <div className="glass-card p-6 shadow-sm">
-                    <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-brand-gray-dark">
-                       <Users size={20} className="text-brand-orange" />
-                       Networking
-                    </h3>
-                    <div className="space-y-6">
-                      <div className="p-5 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between group hover:border-brand-orange/20 transition-colors">
-                        <div>
-                          <p className="text-[10px] text-gray-400 uppercase font-black tracking-[0.2em] mb-1">Tu Link de Red (Partner)</p>
-                          <p className="text-2xl font-mono font-black tracking-widest text-brand-gray-dark group-hover:text-brand-orange transition-colors">{currentUser.referralCode}</p>
-                        </div>
-                        <button className="p-3 bg-white border border-gray-200 rounded-xl group-hover:bg-brand-orange/20 transition-all active:scale-90 text-brand-gray-dark">
-                           <QrCode size={24} className="text-brand-orange" />
-                        </button>
+                {/* Gamification Bonus Progress & Recent Activity */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Bonus Progress */}
+                  <div className="lg:col-span-1 glass-card p-6 border-2 border-indigo-50 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                       <PieChart size={120} />
+                    </div>
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="font-bold text-lg flex items-center gap-2 text-indigo-900">
+                           <TrendingUp size={20} className="text-indigo-600" />
+                           Bono de Red
+                        </h2>
+                        <span className="px-2 py-1 bg-indigo-100 text-indigo-600 text-[10px] font-bold rounded uppercase">Q100.00</span>
                       </div>
                       
-                      <div className="flex items-start gap-4 p-4 rounded-xl bg-blue-50/30 border border-blue-100">
-                        <div className="p-2 bg-blue-500/10 rounded-lg shrink-0">
-                           <TrendingUp size={18} className="text-blue-600" />
+                      <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                        Alcanza <strong>500 lbs</strong> facturadas por tu red en un solo mes y recibe un bono en efectivo a tu saldo principal.
+                      </p>
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-xs font-bold text-brand-gray-dark">
+                          <span>{currentUser.referralLbsThisMonth} lbs</span>
+                          <span>500 lbs</span>
                         </div>
-                        <div>
-                          <p className="text-xs text-brand-gray-dark font-medium mb-1">Impacto de tu red</p>
-                          <p className="text-xs text-gray-500 leading-relaxed">
-                            Has generado <span className="text-blue-600 font-bold">{currentUser.referralLbsThisMonth} libras</span> indirectas este mes. ¡Sigue creciendo!
-                          </p>
+                        <div className="h-4 bg-gray-100 rounded-full overflow-hidden p-[1px] border border-gray-200">
+                          <motion.div 
+                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min((currentUser.referralLbsThisMonth / 500) * 100, 100)}%` }}
+                            transition={{ duration: 1.2 }}
+                          />
                         </div>
+                        {currentUser.referralLbsThisMonth >= 500 && (
+                           <p className="text-[10px] text-green-600 font-bold uppercase mt-2">¡Meta alcanzada este mes!</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="glass-card p-6 shadow-sm">
+                      <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-brand-gray-dark">
+                         <PlusCircle size={20} className="text-brand-orange" />
+                         Registrar Paquete
+                      </h3>
+                      <QuickPackageForm onRegister={handleRegisterPackage} currentLevel={currentUser.level} />
+                    </div>
+                    
+                    {/* Leaderboard */}
+                    <div className="glass-card p-6 shadow-sm flex flex-col">
+                      <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-brand-gray-dark">
+                         <TrendingUp size={20} className="text-brand-orange" />
+                         Top Partners
+                      </h3>
+                      <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                        {partners.filter(p => p.role === UserRole.PARTNER)
+                          .sort((a, b) => b.referralLbsThisMonth - a.referralLbsThisMonth)
+                          .slice(0, 3)
+                          .map((p, idx) => (
+                          <div key={p.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${idx === 0 ? 'bg-yellow-500' : idx === 1 ? 'bg-gray-400' : 'bg-orange-400'}`}>
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-brand-gray-dark truncate">{p.name}</p>
+                              <p className="text-[10px] text-gray-500 font-mono">{p.partnerCode}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm font-black text-brand-orange">{p.referralLbsThisMonth}</p>
+                              <p className="text-[8px] uppercase tracking-widest text-gray-400">Lbs</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -897,6 +1077,100 @@ export default function App() {
                       ))}
                     </div>
                   )}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'referrals' && (
+              <motion.div 
+                key="referrals"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                className="space-y-8"
+              >
+                <div className="flex justify-between items-center">
+                   <h1 className="text-3xl font-bold text-brand-gray-dark">Mi Red de Socios</h1>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Referral List */}
+                  <div className="lg:col-span-2">
+                    <div className="glass-card overflow-hidden shadow-sm border-gray-100 h-full flex flex-col">
+                      <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+                        <h3 className="font-bold text-brand-gray-dark flex items-center gap-2">
+                          <Users size={18} className="text-gray-400" />
+                          Mis Referidos Directos
+                        </h3>
+                      </div>
+                      <div className="divide-y divide-gray-50 overflow-y-auto flex-1 max-h-[600px]">
+                        {partners.filter(p => p.sponsorId === currentUser.id).length === 0 ? (
+                          <div className="p-12 text-center">
+                            <Users size={48} className="mx-auto text-gray-200 mb-4" />
+                            <p className="text-gray-400">Aún no tienes referidos. ¡Comparte tu link para empezar a ganar!</p>
+                          </div>
+                        ) : (
+                          partners.filter(p => p.sponsorId === currentUser.id).map(p => (
+                            <div key={p.id} className="p-5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${p.isActive ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                                  {p.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-brand-gray-dark text-sm">{p.name} <span className="text-xs font-normal text-gray-400">({p.partnerCode})</span></p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest ${p.isActive ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                      {p.isActive ? 'Activo' : 'Inactivo'}
+                                    </span>
+                                    <span className="text-[10px] text-gray-400">{p.level}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-black text-lg text-brand-gray-dark">{p.totalLbsThisMonth} <span className="text-xs text-gray-400">lbs</span></p>
+                                <p className="text-[10px] text-brand-orange font-bold">Generado: Q{(p.totalLbsThisMonth * 2).toFixed(2)}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Marketing Kit */}
+                  <div className="lg:col-span-1 space-y-6">
+                    <div className="glass-card p-6 shadow-sm border-gray-100">
+                      <h3 className="font-bold mb-5 flex items-center gap-2 text-brand-gray-dark">
+                        <TrendingUp size={18} className="text-brand-orange" />
+                        Kit de Promoción
+                      </h3>
+                      
+                      <div className="space-y-4">
+                        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                          <p className="text-xs text-gray-400 mb-2 font-bold uppercase">Mensaje para WhatsApp</p>
+                          <p className="text-sm text-brand-gray-dark italic mb-3">
+                            "¡Hola! Estoy trayendo mis compras de USA a Guate súper barato con YouBox. Regístrate usando mi código {currentUser.referralCode} y obtén beneficios en tu primer paquete."
+                          </p>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(`¡Hola! Estoy trayendo mis compras de USA a Guate súper barato con YouBox. Regístrate usando mi código ${currentUser.referralCode} y obtén beneficios en tu primer paquete.`);
+                              alert("Mensaje copiado al portapapeles");
+                            }}
+                            className="w-full py-2 bg-brand-gray-dark text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-black transition-colors"
+                          >
+                            <Copy size={14} /> Copiar Mensaje
+                          </button>
+                        </div>
+                        
+                        <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                          <p className="text-xs text-blue-400 mb-2 font-bold uppercase">Tu Link Directo</p>
+                          <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-xs font-mono text-blue-800 truncate">youboxgt.com/join/{currentUser.referralCode}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
