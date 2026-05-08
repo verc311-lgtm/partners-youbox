@@ -25,7 +25,11 @@ import {
   X,
   PieChart,
   Bell,
-  Copy
+  Copy,
+  LogOut,
+  Shield,
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -50,7 +54,8 @@ import {
   Transaction, 
   Package as PackageType,
   UserRole,
-  UserStatus
+  UserStatus,
+  Notification as NotificationType
 } from './types';
 import { cn } from './lib/utils';
 
@@ -59,6 +64,7 @@ const INITIAL_USER: UserProfile = {
   id: 'user-1',
   name: 'Juan Pérez',
   email: 'juan@example.com',
+  phone: '+502 5555-1234',
   level: UserLevel.MASTER_BOX,
   role: UserRole.PARTNER,
   status: UserStatus.ACTIVE,
@@ -66,15 +72,17 @@ const INITIAL_USER: UserProfile = {
   walletBalance: 500.00,
   referralBalance: 150.00,
   frozenBalance: 0,
-  sponsorId: 'admin-1', // Not really sponsored by admin, but let's leave undefined or set it to simulate
-  partnerCode: 'YB-5042',
-  referralCode: 'YBR-5042',
+  sponsorId: 'admin-1',
+  partnerCode: 'YBP001',
+  referralCode: 'YBP001-REF',
   totalLbsThisMonth: 15,
   referralLbsThisMonth: 120,
   earningsThisMonth: 600.00,
   totalEarnings: 2450.00,
   inTransitLbs: 8.5,
   registeredAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+  gracePeriodEnd: new Date(Date.now() + 86400000 * 30).toISOString(),
+  acceptedTerms: true,
   notifications: [],
 };
 
@@ -82,6 +90,7 @@ const MOCK_ADMIN: UserProfile = {
   id: 'admin-1',
   name: 'Soporte YouBox',
   email: 'admin@youboxgt.com',
+  phone: '+502 2222-0000',
   level: UserLevel.MASTER_BOX,
   role: UserRole.ADMIN,
   status: UserStatus.ACTIVE,
@@ -89,14 +98,16 @@ const MOCK_ADMIN: UserProfile = {
   walletBalance: 0,
   referralBalance: 0,
   frozenBalance: 0,
-  partnerCode: 'YB-ADMIN',
-  referralCode: 'YBR-ADMIN',
+  partnerCode: 'YBP-ADMIN',
+  referralCode: 'YBP-ADMIN-REF',
   totalLbsThisMonth: 0,
   referralLbsThisMonth: 0,
   earningsThisMonth: 0,
   totalEarnings: 0,
   inTransitLbs: 0,
   registeredAt: new Date().toISOString(),
+  gracePeriodEnd: new Date().toISOString(),
+  acceptedTerms: true,
   notifications: [],
 };
 
@@ -106,6 +117,7 @@ const MOCK_PARTNERS: UserProfile[] = [
     id: 'user-2',
     name: 'Ana García',
     email: 'ana@example.com',
+    phone: '+502 5555-5678',
     level: UserLevel.EMPRENDEDOR,
     role: UserRole.PARTNER,
     status: UserStatus.ACTIVE,
@@ -113,37 +125,42 @@ const MOCK_PARTNERS: UserProfile[] = [
     walletBalance: 120.50,
     referralBalance: 40.00,
     frozenBalance: 0,
-    sponsorId: 'user-1', // Ana is sponsored by Juan
-    partnerCode: 'YB-2091',
-    referralCode: 'YBR-2091',
+    sponsorId: 'user-1',
+    partnerCode: 'YBP002',
+    referralCode: 'YBP002-REF',
     totalLbsThisMonth: 22,
     referralLbsThisMonth: 45,
     earningsThisMonth: 225.00,
     totalEarnings: 1100.00,
     inTransitLbs: 12,
     registeredAt: new Date(Date.now() - 86400000 * 15).toISOString(),
+    gracePeriodEnd: new Date(Date.now() + 86400000 * 45).toISOString(),
+    acceptedTerms: true,
     notifications: [],
   },
   {
     id: 'user-3',
     name: 'Carlos Ruiz',
     email: 'carlos@example.com',
+    phone: '+502 5555-9012',
     level: UserLevel.EXPLORADOR,
     role: UserRole.PARTNER,
     status: UserStatus.PENDING,
-    isActive: false, // Not active yet
+    isActive: false,
     walletBalance: 0,
     referralBalance: 0,
-    frozenBalance: 10.00, // Has 10 in frozen commissions
-    sponsorId: 'user-1', // Carlos is also sponsored by Juan
-    partnerCode: 'YB-8832',
-    referralCode: 'YBR-8832',
+    frozenBalance: 10.00,
+    sponsorId: 'user-1',
+    partnerCode: 'YBP003',
+    referralCode: 'YBP003-REF',
     totalLbsThisMonth: 5,
     referralLbsThisMonth: 0,
     earningsThisMonth: 0,
     totalEarnings: 0,
     inTransitLbs: 0,
     registeredAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+    gracePeriodEnd: new Date(Date.now() + 86400000 * 58).toISOString(),
+    acceptedTerms: true,
     notifications: [
       {
         id: 'n-1',
@@ -156,6 +173,8 @@ const MOCK_PARTNERS: UserProfile[] = [
     ],
   }
 ];
+
+let NEXT_PARTNER_NUMBER = 4; // YBP004 will be the next one
 
 const INITIAL_TRANSACTIONS: Transaction[] = [
   {
@@ -192,18 +211,20 @@ const INITIAL_PACKAGES: PackageType[] = [
 ];
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile>(INITIAL_USER);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [partners, setPartners] = useState<UserProfile[]>(MOCK_PARTNERS);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [packages, setPackages] = useState<PackageType[]>(INITIAL_PACKAGES);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'wallet' | 'packages' | 'referrals' | 'reports' | 'users' | 'approvals'>('dashboard');
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
 
   // Unread notifications count
-  const unreadCount = currentUser.notifications.filter(n => !n.isRead).length;
+  const unreadCount = currentUser?.notifications.filter(n => !n.isRead).length ?? 0;
 
   const handleMarkNotificationsRead = () => {
+    if (!currentUser) return;
     const updatedUser = {
       ...currentUser,
       notifications: currentUser.notifications.map(n => ({ ...n, isRead: true }))
@@ -214,6 +235,7 @@ export default function App() {
 
   // Toggle for Demo
   const toggleRole = () => {
+    if (!currentUser) return;
     if (currentUser.role === UserRole.PARTNER) {
       setCurrentUser(MOCK_ADMIN);
       setActiveTab('dashboard');
@@ -222,6 +244,192 @@ export default function App() {
       setActiveTab('dashboard');
     }
   };
+
+  // Handle Registration
+  const handleRegister = (name: string, email: string, phone: string, sponsorCode: string) => {
+    const num = NEXT_PARTNER_NUMBER++;
+    const code = `YBP${String(num).padStart(3, '0')}`;
+    const now = new Date();
+    const gracePeriod = new Date(now);
+    gracePeriod.setMonth(gracePeriod.getMonth() + 2);
+
+    // Find sponsor by referral code
+    const sponsor = partners.find(p => p.referralCode === sponsorCode);
+
+    const newUser: UserProfile = {
+      id: `user-${Date.now()}`,
+      name,
+      email,
+      phone,
+      level: UserLevel.MASTER_BOX,
+      role: UserRole.PARTNER,
+      status: UserStatus.ACTIVE,
+      isActive: true,
+      walletBalance: 500.00,
+      referralBalance: 0,
+      frozenBalance: 0,
+      sponsorId: sponsor?.id,
+      partnerCode: code,
+      referralCode: `${code}-REF`,
+      totalLbsThisMonth: 0,
+      referralLbsThisMonth: 0,
+      earningsThisMonth: 0,
+      totalEarnings: 0,
+      inTransitLbs: 0,
+      registeredAt: now.toISOString(),
+      gracePeriodEnd: gracePeriod.toISOString(),
+      acceptedTerms: true,
+      notifications: [
+        {
+          id: `n-welcome-${Date.now()}`,
+          title: '¡Bienvenido a YouBox Partners!',
+          message: `Tu nivel Master Box tiene una vigencia de 2 meses. Si al iniciar el tercer mes no has procesado más de 30 libras, tu nivel bajará a Emprendedor.`,
+          type: 'general',
+          isRead: false,
+          createdAt: now.toISOString()
+        }
+      ]
+    };
+
+    const depositTx: Transaction = {
+      id: `t-deposit-${Date.now()}`,
+      amount: 500,
+      type: 'deposit',
+      description: 'Depósito Inicial de Activación',
+      createdAt: now.toISOString(),
+      status: 'completed'
+    };
+
+    setPartners(prev => [...prev, newUser]);
+    setTransactions(prev => [depositTx, ...prev]);
+    setCurrentUser(newUser);
+    setActiveTab('dashboard');
+
+    console.log(`[EMAIL ENVIADO] A: ${email} - Asunto: ¡Bienvenido a YouBox Partners! Tu código es ${code}`);
+  };
+
+  // Handle Login
+  const handleLogin = (email: string) => {
+    if (email === 'admin@youboxgt.com') {
+      setCurrentUser(MOCK_ADMIN);
+      setActiveTab('dashboard');
+      return true;
+    }
+    const found = partners.find(p => p.email.toLowerCase() === email.toLowerCase());
+    if (found) {
+      setCurrentUser(found);
+      setActiveTab('dashboard');
+      return true;
+    }
+    return false;
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setAuthScreen('login');
+    setActiveTab('dashboard');
+  };
+
+  // Level downgrade check (runs on login)
+  useEffect(() => {
+    if (!currentUser || currentUser.role === UserRole.ADMIN) return;
+    
+    const graceEnd = new Date(currentUser.gracePeriodEnd);
+    const now = new Date();
+    
+    if (now > graceEnd && currentUser.level === UserLevel.MASTER_BOX && currentUser.totalLbsThisMonth < 30) {
+      const downgradeNotification: NotificationType = {
+        id: `n-downgrade-${Date.now()}`,
+        title: 'Nivel Ajustado',
+        message: 'Tu período de gracia de 2 meses como Master Box ha terminado. Al no haber procesado más de 30 lbs, tu nivel ha sido ajustado a Emprendedor.',
+        type: 'level_downgrade',
+        isRead: false,
+        createdAt: now.toISOString()
+      };
+
+      const updatedUser = {
+        ...currentUser,
+        level: UserLevel.EMPRENDEDOR,
+        notifications: [downgradeNotification, ...currentUser.notifications]
+      };
+
+      setCurrentUser(updatedUser);
+      setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
+      console.log(`[EMAIL ENVIADO] A: ${currentUser.email} - Asunto: Tu nivel ha cambiado a Emprendedor`);
+    }
+  }, [currentUser?.id]);
+
+  // --- AUTH SCREENS ---
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md"
+        >
+          {/* Logo */}
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 orange-gradient rounded-2xl flex items-center justify-center font-bold text-2xl text-white mx-auto mb-4 shadow-lg">
+              YB
+            </div>
+            <h1 className="text-3xl font-black text-brand-gray-dark">YouBox <span className="text-brand-orange">Partners</span></h1>
+            <p className="text-gray-400 mt-1">Plataforma de Socios Comerciales</p>
+          </div>
+
+          <div className="glass-card p-8 shadow-xl">
+            {/* Tab Switcher */}
+            <div className="flex mb-8 bg-gray-100 rounded-xl p-1">
+              <button 
+                onClick={() => setAuthScreen('login')}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${authScreen === 'login' ? 'bg-white text-brand-gray-dark shadow-sm' : 'text-gray-400'}`}
+              >
+                Iniciar Sesión
+              </button>
+              <button 
+                onClick={() => setAuthScreen('register')}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${authScreen === 'register' ? 'bg-white text-brand-gray-dark shadow-sm' : 'text-gray-400'}`}
+              >
+                Registrarse
+              </button>
+            </div>
+
+            <AnimatePresence mode="wait">
+              {authScreen === 'login' ? (
+                <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <LoginForm onLogin={handleLogin} />
+                </motion.div>
+              ) : (
+                <motion.div key="register" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <RegisterForm onRegister={handleRegister} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Footer Links */}
+          <div className="mt-6 flex flex-col items-center gap-3">
+            <a 
+              href="#" 
+              onClick={(e) => { e.preventDefault(); alert('Términos y Condiciones del programa de Socios YouBox Partners. (Documento pendiente de cargar)'); }}
+              className="text-xs text-gray-400 hover:text-brand-orange transition-colors flex items-center gap-1"
+            >
+              <Shield size={12} /> Términos y Condiciones
+            </a>
+            <a 
+              href="#" 
+              onClick={(e) => { e.preventDefault(); alert('Para agregar el PDF del manual: Coloca el archivo en la carpeta public/ con el nombre "manual-youbox-partners.pdf" y el botón lo descargará automáticamente.'); }}
+              className="text-xs text-gray-400 hover:text-brand-orange transition-colors flex items-center gap-1"
+            >
+              <Download size={12} /> Descargar Manual de Instrucciones
+            </a>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // --- MAIN APP (authenticated) ---
 
   // Chart Data
   const volumeData = [
@@ -529,7 +737,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="pt-6 border-t border-gray-100">
+        <div className="pt-6 border-t border-gray-100 space-y-4">
           <div className="flex items-center space-x-3 px-2">
             <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium text-gray-400 overflow-hidden">
                <div className={cn("w-full h-full flex items-center justify-center font-bold", currentUser.role === UserRole.ADMIN ? 'bg-purple-500 text-white' : 'bg-gray-100')}>
@@ -541,6 +749,21 @@ export default function App() {
               <p className="text-xs text-gray-400 truncate tracking-wide">{currentUser.role === UserRole.ADMIN ? 'Administrador' : currentUser.partnerCode}</p>
             </div>
           </div>
+          
+          <a 
+            href="/manual-youbox-partners.pdf" 
+            download 
+            className="flex items-center gap-2 px-5 py-2 text-xs text-gray-400 hover:text-brand-orange transition-colors"
+          >
+            <Download size={14} /> Manual de Instrucciones
+          </a>
+
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-5 py-2.5 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+          >
+            <LogOut size={14} /> Cerrar Sesión
+          </button>
         </div>
       </nav>
 
@@ -1798,5 +2021,173 @@ function QuickPackageForm({ onRegister, currentLevel }: { onRegister: (w: number
         </button>
       </div>
     </form>
+  );
+}
+
+function LoginForm({ onLogin }: { onLogin: (email: string) => boolean }) {
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!email) { setError('Ingresa tu correo electrónico'); return; }
+    const success = onLogin(email);
+    if (!success) {
+      setError('No se encontró una cuenta con ese correo electrónico.');
+    }
+  };
+
+  return (
+    <motion.form 
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 20 }}
+      onSubmit={handleSubmit} 
+      className="space-y-6"
+    >
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Correo Electrónico</label>
+        <input 
+          type="email" 
+          placeholder="socio@ejemplo.com" 
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full input-field text-sm font-bold placeholder:text-gray-300"
+        />
+      </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-xs text-red-600 font-medium">{error}</p>
+        </div>
+      )}
+
+      <button type="submit" className="btn-primary w-full py-4 text-base font-black shadow-lg">
+        Ingresar
+      </button>
+
+      <div className="text-center">
+        <p className="text-[10px] text-gray-400">
+          <strong>Demo rápido:</strong> usa <span className="font-mono text-brand-orange">juan@example.com</span> o <span className="font-mono text-brand-orange">admin@youboxgt.com</span>
+        </p>
+      </div>
+    </motion.form>
+  );
+}
+
+function RegisterForm({ onRegister }: { onRegister: (name: string, email: string, phone: string, sponsorCode: string) => void }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [sponsorCode, setSponsorCode] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!name || !email || !phone) {
+      setError('Todos los campos son obligatorios.');
+      return;
+    }
+    if (!acceptedTerms) {
+      setError('Debes aceptar los Términos y Condiciones para continuar.');
+      return;
+    }
+    onRegister(name, email, phone, sponsorCode);
+  };
+
+  return (
+    <motion.form 
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      onSubmit={handleSubmit} 
+      className="space-y-5"
+    >
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Nombre Completo</label>
+        <input 
+          type="text" 
+          placeholder="Ej: María López"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full input-field text-sm font-bold placeholder:text-gray-300"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Correo Electrónico</label>
+        <input 
+          type="email" 
+          placeholder="tu@correo.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full input-field text-sm font-bold placeholder:text-gray-300"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Teléfono</label>
+        <input 
+          type="tel" 
+          placeholder="+502 5555-1234"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          className="w-full input-field text-sm font-bold placeholder:text-gray-300"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Código de Patrocinador <span className="text-gray-300">(Opcional)</span></label>
+        <input 
+          type="text" 
+          placeholder="Ej: YBP001-REF"
+          value={sponsorCode}
+          onChange={(e) => setSponsorCode(e.target.value)}
+          className="w-full input-field text-sm font-bold placeholder:text-gray-300 font-mono"
+        />
+      </div>
+
+      {/* Terms and Manual */}
+      <div className="space-y-3">
+        <label className="flex items-start gap-3 cursor-pointer group">
+          <input 
+            type="checkbox" 
+            checked={acceptedTerms}
+            onChange={(e) => setAcceptedTerms(e.target.checked)}
+            className="mt-1 w-4 h-4 rounded border-gray-300 text-brand-orange focus:ring-brand-orange accent-brand-orange"
+          />
+          <span className="text-xs text-gray-500 leading-relaxed">
+            Acepto los{' '}
+            <a href="#" onClick={(e) => { e.preventDefault(); alert('Términos y Condiciones del programa de Socios YouBox Partners. (Documento pendiente de cargar)'); }} className="text-brand-orange font-bold hover:underline">
+              Términos y Condiciones
+            </a>{' '}
+            del programa de Socios y confirmo el depósito de Q500.00 de activación.
+          </span>
+        </label>
+      </div>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-xs text-red-600 font-medium">{error}</p>
+        </div>
+      )}
+
+      <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+        <p className="text-xs text-indigo-600 font-bold mb-1">ℹ️ Nivel Inicial: Master Box</p>
+        <p className="text-[11px] text-indigo-500 leading-relaxed">
+          Todos los socios inician en el nivel <strong>Master Box</strong> con una vigencia de <strong>2 meses</strong>. Si al tercer mes no has procesado más de 30 libras, tu nivel bajará a Emprendedor.
+        </p>
+      </div>
+
+      <button 
+        type="submit" 
+        className="btn-primary w-full py-4 text-base font-black shadow-lg"
+      >
+        Crear Mi Cuenta de Socio
+      </button>
+    </motion.form>
   );
 }

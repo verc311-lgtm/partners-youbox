@@ -74,7 +74,7 @@ export interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'frozen_commission' | 'bonus' | 'general';
+  type: 'frozen_commission' | 'bonus' | 'general' | 'level_downgrade';
   isRead: boolean;
   createdAt: string;
 }
@@ -83,6 +83,7 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
+  phone: string;
   level: UserLevel;
   role: UserRole;
   status: UserStatus;
@@ -96,9 +97,11 @@ export interface UserProfile {
   earningsThisMonth: number;
   totalEarnings: number;
   inTransitLbs: number;
-  partnerCode: string; // e.g. YB-1234
-  referralCode: string; // e.g. YBR-1234
+  partnerCode: string; // e.g. YBP001
+  referralCode: string; // e.g. YBP001-REF
   registeredAt: string;
+  gracePeriodEnd: string; // 2 months after registration — Master Box grace
+  acceptedTerms: boolean;
   notifications: Notification[];
 }
 
