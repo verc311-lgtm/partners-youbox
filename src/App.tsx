@@ -245,7 +245,7 @@ export default function App() {
     }
   };
 
-  // Handle Registration
+  // Handle Registration — account starts PENDING until admin verifies deposit
   const handleRegister = (name: string, email: string, phone: string, sponsorCode: string) => {
     const num = NEXT_PARTNER_NUMBER++;
     const code = `YBP${String(num).padStart(3, '0')}`;
@@ -263,9 +263,9 @@ export default function App() {
       phone,
       level: UserLevel.MASTER_BOX,
       role: UserRole.PARTNER,
-      status: UserStatus.ACTIVE,
-      isActive: true,
-      walletBalance: 500.00,
+      status: UserStatus.PENDING,
+      isActive: false,
+      walletBalance: 0,
       referralBalance: 0,
       frozenBalance: 0,
       sponsorId: sponsor?.id,
@@ -279,49 +279,41 @@ export default function App() {
       registeredAt: now.toISOString(),
       gracePeriodEnd: gracePeriod.toISOString(),
       acceptedTerms: true,
-      notifications: [
-        {
-          id: `n-welcome-${Date.now()}`,
-          title: '¡Bienvenido a YouBox Partners!',
-          message: `Tu nivel Master Box tiene una vigencia de 2 meses. Si al iniciar el tercer mes no has procesado más de 30 libras, tu nivel bajará a Emprendedor.`,
-          type: 'general',
-          isRead: false,
-          createdAt: now.toISOString()
-        }
-      ]
+      notifications: []
     };
 
+    // Deposit stays pending until admin approves
     const depositTx: Transaction = {
       id: `t-deposit-${Date.now()}`,
       amount: 500,
       type: 'deposit',
-      description: 'Depósito Inicial de Activación',
+      description: `Depósito Inicial - ${name} (${code})`,
       createdAt: now.toISOString(),
-      status: 'completed'
+      status: 'pending'
     };
 
     setPartners(prev => [...prev, newUser]);
     setTransactions(prev => [depositTx, ...prev]);
     setCurrentUser(newUser);
-    setActiveTab('dashboard');
 
-    console.log(`[EMAIL ENVIADO] A: ${email} - Asunto: ¡Bienvenido a YouBox Partners! Tu código es ${code}`);
+    console.log(`[EMAIL ENVIADO] A: ${email} - Asunto: Tu solicitud de socio ${code} ha sido recibida. Estamos verificando tu depósito.`);
+    console.log(`[EMAIL ENVIADO] A: admin@youboxgt.com - Nuevo registro pendiente de ${name} (${code}). Verificar boleta de depósito.`);
   };
 
   // Handle Login
-  const handleLogin = (email: string) => {
+  const handleLogin = (email: string): 'success' | 'pending' | 'not_found' => {
     if (email === 'admin@youboxgt.com') {
       setCurrentUser(MOCK_ADMIN);
       setActiveTab('dashboard');
-      return true;
+      return 'success';
     }
     const found = partners.find(p => p.email.toLowerCase() === email.toLowerCase());
     if (found) {
       setCurrentUser(found);
       setActiveTab('dashboard');
-      return true;
+      return found.status === UserStatus.PENDING ? 'pending' : 'success';
     }
-    return false;
+    return 'not_found';
   };
 
   const handleLogout = () => {
@@ -429,7 +421,59 @@ export default function App() {
     );
   }
 
-  // --- MAIN APP (authenticated) ---
+  // --- PENDING VERIFICATION SCREEN ---
+  if (currentUser.status === UserStatus.PENDING) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md text-center"
+        >
+          <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-yellow-200">
+            <AlertCircle size={40} className="text-yellow-500" />
+          </div>
+          <h1 className="text-2xl font-black text-brand-gray-dark mb-2">Verificación Pendiente</h1>
+          <p className="text-gray-400 mb-6 leading-relaxed">
+            Tu solicitud de socio <strong className="text-brand-orange">{currentUser.partnerCode}</strong> ha sido recibida. 
+            Estamos verificando tu boleta de depósito de Q500.00.
+          </p>
+          
+          <div className="glass-card p-6 shadow-sm mb-6 text-left space-y-4">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Nombre</span>
+              <span className="font-bold text-brand-gray-dark">{currentUser.name}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Código de Socio</span>
+              <span className="font-mono font-bold text-brand-orange">{currentUser.partnerCode}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Estado</span>
+              <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-[10px] font-black uppercase tracking-widest">Pendiente de Verificación</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Nivel Asignado</span>
+              <span className="font-bold text-indigo-600">Master Box</span>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400 mb-6 italic">
+            Recibirás una notificación por correo electrónico una vez que tu depósito sea verificado por el equipo de YouBox.
+          </p>
+
+          <button 
+            onClick={handleLogout}
+            className="text-sm text-red-400 hover:text-red-600 font-bold transition-colors flex items-center gap-2 mx-auto"
+          >
+            <LogOut size={16} /> Cerrar Sesión
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // --- MAIN APP (authenticated + verified) ---
 
   // Chart Data
   const volumeData = [
@@ -517,7 +561,39 @@ export default function App() {
     setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' as const } : t));
     const tx = transactions.find(t => t.id === id);
     if (tx && tx.type === 'deposit') {
-      alert(`Depósito de Q${tx.amount} aprobado.`);
+      // If it's an initial deposit, activate the corresponding partner
+      const partnerCode = tx.description.match(/\(YBP\d+\)/)?.[0]?.replace(/[()]/g, '');
+      if (partnerCode) {
+        const now = new Date();
+        const gracePeriod = new Date(now);
+        gracePeriod.setMonth(gracePeriod.getMonth() + 2);
+
+        setPartners(prev => prev.map(p => {
+          if (p.partnerCode === partnerCode && p.status === UserStatus.PENDING) {
+            return {
+              ...p,
+              status: UserStatus.ACTIVE,
+              isActive: true,
+              walletBalance: 500,
+              gracePeriodEnd: gracePeriod.toISOString(),
+              notifications: [
+                {
+                  id: `n-welcome-${Date.now()}`,
+                  title: '¡Cuenta Activada!',
+                  message: `Tu depósito ha sido verificado. Bienvenido a YouBox Partners. Tu nivel Master Box tiene vigencia de 2 meses. Si al tercer mes no has procesado más de 30 libras, tu nivel bajará a Emprendedor.`,
+                  type: 'general',
+                  isRead: false,
+                  createdAt: now.toISOString()
+                },
+                ...p.notifications
+              ]
+            };
+          }
+          return p;
+        }));
+        console.log(`[EMAIL ENVIADO] A: ${partnerCode} - Asunto: ¡Tu cuenta ha sido activada! Ya puedes operar en YouBox Partners.`);
+      }
+      alert(`Depósito de Q${tx.amount} aprobado. Cuenta activada.`);
     }
   };
 
@@ -2024,18 +2100,19 @@ function QuickPackageForm({ onRegister, currentLevel }: { onRegister: (w: number
   );
 }
 
-function LoginForm({ onLogin }: { onLogin: (email: string) => boolean }) {
+function LoginForm({ onLogin }: { onLogin: (email: string) => 'success' | 'pending' | 'not_found' }) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!email) { setError('Ingresa tu correo electrónico'); return; }
-    const success = onLogin(email);
-    if (!success) {
-      setError('No se encontró una cuenta con ese correo electrónico.');
+    if (!email) { setError('Ingresa tu correo electr\u00f3nico'); return; }
+    const result = onLogin(email);
+    if (result === 'not_found') {
+      setError('No se encontr\u00f3 una cuenta con ese correo electr\u00f3nico.');
     }
+    // 'pending' and 'success' are handled by the parent component
   };
 
   return (
@@ -2081,6 +2158,7 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [sponsorCode, setSponsorCode] = useState('');
+  const [depositProof, setDepositProof] = useState<File | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
 
@@ -2089,6 +2167,10 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
     setError('');
     if (!name || !email || !phone) {
       setError('Todos los campos son obligatorios.');
+      return;
+    }
+    if (!depositProof) {
+      setError('Debes adjuntar la boleta de depósito de Q500.00.');
       return;
     }
     if (!acceptedTerms) {
@@ -2150,7 +2232,35 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
         />
       </div>
 
-      {/* Terms and Manual */}
+      {/* Deposit Receipt Upload */}
+      <div className="space-y-2">
+        <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Boleta de Deposito (Q500.00) <span className="text-red-400">*</span></label>
+        <div className="relative group">
+          <input 
+            type="file" 
+            accept="image/*,.pdf"
+            onChange={(e) => setDepositProof(e.target.files?.[0] || null)}
+            className="absolute inset-0 opacity-0 cursor-pointer z-10"
+          />
+          <div className={`input-field border-dashed py-6 flex flex-col items-center justify-center gap-2 transition-all ${depositProof ? 'border-green-300 bg-green-50/50' : 'border-gray-200 bg-gray-50 group-hover:border-brand-orange/30'}`}>
+            {depositProof ? (
+              <>
+                <CheckCircle2 className="text-green-500" size={28} />
+                <p className="text-xs font-bold text-brand-gray-dark">{depositProof.name}</p>
+                <p className="text-[10px] text-gray-400 italic">Pulsa para cambiar</p>
+              </>
+            ) : (
+              <>
+                <PlusCircle className="text-gray-300 group-hover:text-brand-orange/50 transition-colors" size={28} />
+                <p className="text-xs font-medium text-gray-400 text-center">Adjuntar Boleta / Captura del Deposito</p>
+                <p className="text-[10px] text-gray-300">Formatos: JPG, PNG, PDF</p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Terms */}
       <div className="space-y-3">
         <label className="flex items-start gap-3 cursor-pointer group">
           <input 
@@ -2175,10 +2285,10 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
         </div>
       )}
 
-      <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-        <p className="text-xs text-indigo-600 font-bold mb-1">ℹ️ Nivel Inicial: Master Box</p>
-        <p className="text-[11px] text-indigo-500 leading-relaxed">
-          Todos los socios inician en el nivel <strong>Master Box</strong> con una vigencia de <strong>2 meses</strong>. Si al tercer mes no has procesado más de 30 libras, tu nivel bajará a Emprendedor.
+      <div className="p-4 bg-yellow-50 rounded-xl border border-yellow-100">
+        <p className="text-xs text-yellow-700 font-bold mb-1">Activacion Requiere Verificacion</p>
+        <p className="text-[11px] text-yellow-600 leading-relaxed">
+          Tu cuenta se activara una vez que el equipo de YouBox verifique tu boleta de deposito. Inicias en nivel <strong>Master Box</strong> con vigencia de <strong>2 meses</strong>.
         </p>
       </div>
 
@@ -2186,7 +2296,7 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
         type="submit" 
         className="btn-primary w-full py-4 text-base font-black shadow-lg"
       >
-        Crear Mi Cuenta de Socio
+        Enviar Solicitud de Socio
       </button>
     </motion.form>
   );
