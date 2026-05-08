@@ -60,7 +60,11 @@ const INITIAL_USER: UserProfile = {
   level: UserLevel.MASTER_BOX,
   role: UserRole.PARTNER,
   status: UserStatus.ACTIVE,
+  isActive: true,
   walletBalance: 500.00,
+  referralBalance: 150.00,
+  frozenBalance: 0,
+  sponsorId: 'admin-1', // Not really sponsored by admin, but let's leave undefined or set it to simulate
   partnerCode: 'YB-5042',
   referralCode: 'YBR-5042',
   totalLbsThisMonth: 15,
@@ -78,7 +82,10 @@ const MOCK_ADMIN: UserProfile = {
   level: UserLevel.MASTER_BOX,
   role: UserRole.ADMIN,
   status: UserStatus.ACTIVE,
+  isActive: true,
   walletBalance: 0,
+  referralBalance: 0,
+  frozenBalance: 0,
   partnerCode: 'YB-ADMIN',
   referralCode: 'YBR-ADMIN',
   totalLbsThisMonth: 0,
@@ -98,7 +105,11 @@ const MOCK_PARTNERS: UserProfile[] = [
     level: UserLevel.EMPRENDEDOR,
     role: UserRole.PARTNER,
     status: UserStatus.ACTIVE,
+    isActive: true,
     walletBalance: 120.50,
+    referralBalance: 40.00,
+    frozenBalance: 0,
+    sponsorId: 'user-1', // Ana is sponsored by Juan
     partnerCode: 'YB-2091',
     referralCode: 'YBR-2091',
     totalLbsThisMonth: 22,
@@ -115,7 +126,11 @@ const MOCK_PARTNERS: UserProfile[] = [
     level: UserLevel.EXPLORADOR,
     role: UserRole.PARTNER,
     status: UserStatus.PENDING,
+    isActive: false, // Not active yet
     walletBalance: 0,
+    referralBalance: 0,
+    frozenBalance: 10.00, // Has 10 in frozen commissions
+    sponsorId: 'user-1', // Carlos is also sponsored by Juan
     partnerCode: 'YB-8832',
     referralCode: 'YBR-8832',
     totalLbsThisMonth: 5,
@@ -141,6 +156,7 @@ const INITIAL_TRANSACTIONS: Transaction[] = [
 const INITIAL_PACKAGES: PackageType[] = [
   {
     id: 'p-initial-1',
+    ownerId: 'user-2', // Package belongs to Ana
     trackingNumber: 'MEX-9920112',
     weight: 5.0,
     origin: Origin.MEXICO,
@@ -150,6 +166,7 @@ const INITIAL_PACKAGES: PackageType[] = [
   },
   {
     id: 'p-initial-2',
+    ownerId: 'user-3', // Package belongs to Carlos
     trackingNumber: 'LRD-7781290',
     weight: 3.5,
     origin: Origin.LAREDO,
@@ -265,6 +282,89 @@ export default function App() {
     if (tx && tx.type === 'deposit') {
       alert(`Depósito de Q${tx.amount} aprobado.`);
     }
+  };
+
+  const handleMarkAsPaid = (packageId: string) => {
+    const pkg = packages.find(p => p.id === packageId);
+    if (!pkg || pkg.status === 'PAGADO') return;
+
+    // Update package status
+    setPackages(prev => prev.map(p => p.id === packageId ? { ...p, status: 'PAGADO' } : p));
+
+    // Find owner and sponsor
+    const owner = partners.find(p => p.id === pkg.ownerId);
+    if (!owner || !owner.sponsorId) return; // No sponsor, no commission
+
+    const sponsorIndex = partners.findIndex(p => p.id === owner.sponsorId);
+    if (sponsorIndex === -1) return;
+
+    const sponsor = partners[sponsorIndex];
+    const commissionAmount = pkg.weight * 2; // Q2.00 por libra cobrada
+
+    // Create transaction
+    const newTx: Transaction = {
+      id: `t-ref-${Date.now()}`,
+      amount: commissionAmount,
+      type: 'referral_commission',
+      description: `Ganancia por referido ${owner.name} - Guía #${pkg.trackingNumber}`,
+      createdAt: new Date().toISOString(),
+      status: 'completed',
+      frozen: !sponsor.isActive
+    };
+
+    setTransactions(prev => [newTx, ...prev]);
+
+    // Update sponsor balance
+    const updatedPartners = [...partners];
+    if (sponsor.isActive) {
+      updatedPartners[sponsorIndex] = {
+        ...sponsor,
+        referralBalance: sponsor.referralBalance + commissionAmount,
+        totalEarnings: sponsor.totalEarnings + commissionAmount,
+        earningsThisMonth: sponsor.earningsThisMonth + commissionAmount
+      };
+    } else {
+      updatedPartners[sponsorIndex] = {
+        ...sponsor,
+        frozenBalance: sponsor.frozenBalance + commissionAmount
+      };
+    }
+    setPartners(updatedPartners);
+
+    // If current user is the sponsor, update their state too
+    if (currentUser.id === sponsor.id) {
+      setCurrentUser(updatedPartners[sponsorIndex]);
+    }
+
+    alert(`Paquete ${pkg.trackingNumber} pagado. Comisión ${sponsor.isActive ? 'acreditada' : 'congelada'} al patrocinador.`);
+  };
+
+  const handleTransferReferral = () => {
+    if (currentUser.referralBalance <= 0) return;
+
+    const amount = currentUser.referralBalance;
+
+    const newTx: Transaction = {
+      id: `t-trans-${Date.now()}`,
+      amount,
+      type: 'transfer_to_main',
+      description: 'Transferencia de Ganancias de Red',
+      createdAt: new Date().toISOString(),
+      status: 'completed'
+    };
+
+    setTransactions(prev => [newTx, ...prev]);
+
+    const updatedUser = {
+      ...currentUser,
+      walletBalance: currentUser.walletBalance + amount,
+      referralBalance: 0
+    };
+
+    setCurrentUser(updatedUser);
+    setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
+    
+    alert(`Se han transferido Q${amount.toFixed(2)} a tu Saldo Principal.`);
   };
 
   return (
@@ -394,16 +494,29 @@ export default function App() {
                    <h1 className="text-3xl font-black text-brand-gray-dark">Logística Global <span className="text-brand-orange">YouBoxGt</span></h1>
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {/* Show all users' packages here in a real app. For now we show the main packages list */}
-                      {packages.map(p => (
-                        <div key={p.id} className="glass-card p-6 border-l-4 border-brand-orange">
-                          <p className="text-xs text-white/40 mb-1">{p.trackingNumber}</p>
-                          <p className="font-bold text-brand-gray-dark mb-3">Socio: {partners[0].name}</p>
-                          <div className="flex justify-between items-center">
-                             <span className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-500">{p.status}</span>
-                             <span className="text-sm font-black text-brand-gray-dark">Q{p.cost}</span>
+                      {packages.map(p => {
+                        const owner = partners.find(user => user.id === p.ownerId);
+                        return (
+                          <div key={p.id} className="glass-card p-6 border-l-4 border-brand-orange flex flex-col justify-between">
+                            <div>
+                              <p className="text-xs text-brand-gray-dark/50 mb-1 font-mono">{p.trackingNumber}</p>
+                              <p className="font-bold text-brand-gray-dark mb-3">Socio: {owner?.name || 'Desconocido'}</p>
+                              <div className="flex justify-between items-center mb-4">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${p.status === 'PAGADO' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>{p.status}</span>
+                                <span className="text-sm font-black text-brand-gray-dark">Q{p.cost}</span>
+                              </div>
+                            </div>
+                            {p.status !== 'PAGADO' && (
+                              <button 
+                                onClick={() => handleMarkAsPaid(p.id)}
+                                className="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-bold text-xs transition-colors"
+                              >
+                                Marcar como Pagado
+                              </button>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                    </div>
                 </div>
               </motion.div>
@@ -566,9 +679,10 @@ export default function App() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-1 space-y-6">
+                    {/* Main Wallet Card */}
                     <div className="glass-card p-8 orange-gradient relative overflow-hidden group">
                       <div className="relative z-10">
-                        <p className="text-white/80 font-medium mb-1 drop-shadow-sm">Saldo Disponible</p>
+                        <p className="text-white/80 font-medium mb-1 drop-shadow-sm">Saldo Principal</p>
                         <h2 className="text-5xl font-black mb-10 drop-shadow-md tracking-tight">Q{currentUser.walletBalance.toFixed(2)}</h2>
                         <div className="flex justify-between items-end">
                           <div>
@@ -583,6 +697,33 @@ export default function App() {
                       <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-white/10 rounded-full blur-3xl opacity-50" />
                       <div className="absolute -left-12 -top-12 w-32 h-32 bg-black/10 rounded-full blur-2xl opacity-30" />
                     </div>
+
+                    {/* Referral Wallet Card */}
+                    <div className="glass-card p-8 bg-gradient-to-br from-blue-600 to-indigo-700 relative overflow-hidden group">
+                      <div className="relative z-10">
+                        <p className="text-white/80 font-medium mb-1 drop-shadow-sm">Saldo por Referidos</p>
+                        <h2 className="text-4xl font-black mb-6 drop-shadow-md tracking-tight text-white">Q{currentUser.referralBalance.toFixed(2)}</h2>
+                        
+                        {!currentUser.isActive && currentUser.frozenBalance > 0 && (
+                           <div className="mb-4 p-2 bg-white/10 rounded-lg border border-white/20">
+                             <p className="text-xs text-white/90 flex items-center gap-1.5 font-bold">
+                               <AlertCircle size={14} /> Saldo Congelado: Q{currentUser.frozenBalance.toFixed(2)}
+                             </p>
+                             <p className="text-[9px] text-white/70 mt-1">Activa tu cuenta para liberar estas ganancias.</p>
+                           </div>
+                        )}
+
+                        <button 
+                          onClick={handleTransferReferral}
+                          disabled={currentUser.referralBalance <= 0}
+                          className="w-full py-3 bg-white text-indigo-600 font-bold rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md text-sm"
+                        >
+                          Transferir a Saldo Principal
+                        </button>
+                      </div>
+                      <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-white/10 rounded-full blur-3xl opacity-50" />
+                      <div className="absolute -top-12 -left-12 w-32 h-32 bg-black/10 rounded-full blur-2xl opacity-30" />
+                    </div>
                     
                     <div className="glass-card p-6 shadow-sm border-gray-100">
                       <h3 className="font-bold mb-5 flex items-center gap-2 text-brand-gray-dark">
@@ -595,7 +736,7 @@ export default function App() {
                              <CheckCircle2 size={12} />
                           </div>
                           <p className="text-xs text-gray-500 leading-relaxed">
-                            Los depósitos por transferencia pueden tardar hasta <span className="text-brand-gray-dark font-bold">24 horas</span> en reflejarse.
+                            El Saldo por Referidos no puede ser retirado directamente a cuenta bancaria. Puedes transferirlo al Saldo Principal para el pago de tus envíos.
                           </p>
                         </div>
                         <div className="flex gap-3">
@@ -603,7 +744,15 @@ export default function App() {
                              <CheckCircle2 size={12} />
                           </div>
                           <p className="text-xs text-gray-500 leading-relaxed">
-                            Socio <span className="text-brand-gray-dark font-bold">{currentUser.name}</span> verificado con aporte inicial de Q500.
+                            Los depósitos por transferencia pueden tardar hasta <span className="text-brand-gray-dark font-bold">24 horas</span> en reflejarse.
+                          </p>
+                        </div>
+                        <div className="flex gap-3">
+                          <div className={`w-5 h-5 rounded-full ${currentUser.isActive ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'} flex items-center justify-center shrink-0 mt-0.5`}>
+                             {currentUser.isActive ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                          </div>
+                          <p className="text-xs text-gray-500 leading-relaxed">
+                            Socio <span className="text-brand-gray-dark font-bold">{currentUser.name}</span> {currentUser.isActive ? 'verificado con aporte inicial de Q500.' : 'pendiente de activación.'}
                           </p>
                         </div>
                       </div>
@@ -611,38 +760,53 @@ export default function App() {
                   </div>
 
                   <div className="lg:col-span-2">
-                    <div className="glass-card overflow-hidden shadow-sm border-gray-100">
+                    <div className="glass-card overflow-hidden shadow-sm border-gray-100 h-full flex flex-col">
                       <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
                         <h3 className="font-bold text-brand-gray-dark flex items-center gap-2">
                           <History size={18} className="text-gray-400" />
                           Movimientos Recientes
                         </h3>
                       </div>
-                      <div className="divide-y divide-gray-50">
-                        {transactions.map(t => (
-                          <div key={t.id} className="p-5 flex items-center justify-between hover:bg-gray-50 transition-colors">
-                            <div className="flex items-center gap-5">
-                              <div className={`p-3.5 rounded-2xl ${t.type === 'deposit' ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
-                                {t.type === 'deposit' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
+                      <div className="divide-y divide-gray-50 overflow-y-auto flex-1 max-h-[600px]">
+                        {transactions.map(t => {
+                          let isPositive = t.type === 'deposit' || t.type === 'referral_commission' || t.type === 'transfer_to_main';
+                          let icon = isPositive ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />;
+                          let colorClass = isPositive ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-red-50 text-red-600 border border-red-100';
+                          
+                          if (t.type === 'transfer_to_main') {
+                            colorClass = 'bg-blue-50 text-blue-600 border border-blue-100';
+                          } else if (t.type === 'referral_commission') {
+                            colorClass = 'bg-indigo-50 text-indigo-600 border border-indigo-100';
+                          }
+
+                          return (
+                            <div key={t.id} className="p-5 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                              <div className="flex items-center gap-5">
+                                <div className={`p-3.5 rounded-2xl ${colorClass}`}>
+                                  {icon}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-brand-gray-dark text-sm md:text-base">
+                                    {t.description} 
+                                    {t.frozen && <span className="ml-2 text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded uppercase font-bold">Congelado</span>}
+                                  </p>
+                                  <p className="text-[10px] md:text-xs text-gray-400 font-medium uppercase tracking-[0.05em] mt-0.5">
+                                    {new Date(t.createdAt).toLocaleDateString()} • {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-bold text-brand-gray-dark text-sm md:text-base">{t.description}</p>
-                                <p className="text-[10px] md:text-xs text-gray-400 font-medium uppercase tracking-[0.05em] mt-0.5">
-                                  {new Date(t.createdAt).toLocaleDateString()} • {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              <div className="text-right">
+                                <p className={`font-black text-lg ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                  {isPositive ? '+' : '-'} Q{t.amount.toFixed(2)}
                                 </p>
+                                <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                                  <div className={`w-1.5 h-1.5 rounded-full ${t.status === 'completed' ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                                  <span className="text-[9px] uppercase font-black tracking-widest text-gray-400">{t.status}</span>
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className={`font-black text-lg ${t.type === 'deposit' ? 'text-green-600' : 'text-red-600'}`}>
-                                {t.type === 'deposit' ? '+' : '-'} Q{t.amount.toFixed(2)}
-                              </p>
-                              <div className="flex items-center justify-end gap-1.5 mt-0.5">
-                                <div className={`w-1.5 h-1.5 rounded-full ${t.status === 'completed' ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                                <span className="text-[9px] uppercase font-black tracking-widest text-gray-400">{t.status}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

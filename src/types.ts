@@ -52,10 +52,11 @@ export const LEVEL_MAP: Record<UserLevel, LevelConfig> = {
 export interface Transaction {
   id: string;
   amount: number;
-  type: 'deposit' | 'withdrawal';
+  type: 'deposit' | 'withdrawal' | 'referral_commission' | 'transfer_to_main' | 'payment';
   description: string;
   createdAt: string;
   status: 'pending' | 'completed' | 'failed';
+  frozen?: boolean;
 }
 
 export enum UserStatus {
@@ -76,7 +77,11 @@ export interface UserProfile {
   level: UserLevel;
   role: UserRole;
   status: UserStatus;
+  isActive: boolean; // True if they have paid their Q500 activation
+  sponsorId?: string; // ID of the parent who referred them
   walletBalance: number;
+  referralBalance: number; // Networking Wallet
+  frozenBalance: number; // Frozen commissions if not active
   totalLbsThisMonth: number;
   referralLbsThisMonth: number;
   earningsThisMonth: number;
@@ -87,10 +92,11 @@ export interface UserProfile {
   registeredAt: string;
 }
 
-export type PackageStatus = 'Registrado' | 'En Ruta' | 'Aduana' | 'Entregado';
+export type PackageStatus = 'Registrado' | 'En Ruta' | 'Aduana' | 'Entregado' | 'PAGADO';
 
 export interface Package {
   id: string;
+  ownerId: string; // User ID who owns this package
   trackingNumber: string;
   weight: number;
   origin: Origin;
