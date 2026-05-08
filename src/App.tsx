@@ -2147,7 +2147,7 @@ function LoginForm({ onLogin }: { onLogin: (email: string) => 'success' | 'pendi
 
       <div className="text-center">
         <p className="text-[10px] text-gray-400">
-          <strong>Demo rápido:</strong> usa <span className="font-mono text-brand-orange">juan@example.com</span> o <span className="font-mono text-brand-orange">admin@youboxgt.com</span>
+          <strong>Demo r\u00e1pido:</strong> haz clic en <button type="button" onClick={() => setEmail('juan@example.com')} className="font-mono text-brand-orange hover:underline">juan@example.com</button> o <button type="button" onClick={() => setEmail('admin@youboxgt.com')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
         </p>
       </div>
     </motion.form>
