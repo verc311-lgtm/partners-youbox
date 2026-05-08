@@ -301,13 +301,14 @@ export default function App() {
   };
 
   // Handle Login
-  const handleLogin = (email: string): 'success' | 'pending' | 'not_found' => {
+  const handleLogin = (rawEmail: string): 'success' | 'pending' | 'not_found' => {
+    const email = rawEmail.trim().toLowerCase();
     if (email === 'admin@youboxgt.com') {
       setCurrentUser(MOCK_ADMIN);
       setActiveTab('dashboard');
       return 'success';
     }
-    const found = partners.find(p => p.email.toLowerCase() === email.toLowerCase());
+    const found = partners.find(p => p.email.trim().toLowerCase() === email);
     if (found) {
       setCurrentUser(found);
       setActiveTab('dashboard');
