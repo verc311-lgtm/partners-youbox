@@ -2147,7 +2147,7 @@ function EstimatorView({ currentUser }: { currentUser: UserProfile }) {
 
   const valueGTQ = parsedValueUSD * parsedExchangeRate;
   const tax = valueGTQ * 0.12;
-  const shippingRate = LEVEL_MAP[currentUser.level].rates[origin];
+  const shippingRate = origin === Origin.LAREDO ? 80 : 35;
   const shippingCost = parsedWeight * shippingRate;
   const total = valueGTQ + tax + shippingCost;
 
@@ -2251,7 +2251,7 @@ function EstimatorView({ currentUser }: { currentUser: UserProfile }) {
            </div>
 
            <div className="text-center text-[10px] text-gray-400 italic">
-              * Esta cotización es un estimado basado en los datos proporcionados y la tarifa actual del nivel {currentUser.level}. Los costos finales pueden variar ligeramente según el peso real y ajustes aduanales.
+              * Esta cotización es un estimado basado en tarifas estándar de importación al público. Los costos finales pueden variar ligeramente según el peso real y ajustes aduanales.
            </div>
 
            <button 
