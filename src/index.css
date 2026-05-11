@@ -31,3 +31,25 @@
   @apply orange-gradient text-white font-semibold py-2 px-6 rounded-lg hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 shadow-md;
 }
 
+@media print {
+  body {
+    background: white !important;
+  }
+  .hide-on-print {
+    display: none !important;
+  }
+  nav {
+    display: none !important;
+  }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  .print-area {
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+  }
+}

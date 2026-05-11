@@ -29,7 +29,8 @@ import {
   LogOut,
   Shield,
   Download,
-  ExternalLink
+  ExternalLink,
+  Calculator
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -219,7 +220,7 @@ export default function App() {
   const [partners, setPartners] = useState<UserProfile[]>(MOCK_PARTNERS);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [packages, setPackages] = useState<PackageType[]>(INITIAL_PACKAGES);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'wallet' | 'packages' | 'referrals' | 'reports' | 'users' | 'approvals'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'wallet' | 'packages' | 'referrals' | 'reports' | 'users' | 'approvals' | 'estimator'>('dashboard');
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
@@ -782,6 +783,12 @@ export default function App() {
             active={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')} 
           />
+          <NavItem 
+            icon={<Calculator size={20} />} 
+            label="Cotizador" 
+            active={activeTab === 'estimator'} 
+            onClick={() => setActiveTab('estimator')} 
+          />
           {currentUser.role === UserRole.PARTNER && (
             <>
               <NavItem 
@@ -955,7 +962,6 @@ export default function App() {
                 <div className="space-y-8">
                    <h1 className="text-3xl font-black text-brand-gray-dark">Logística Global <span className="text-brand-orange">YouBoxGt</span></h1>
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {/* Show all users' packages here in a real app. For now we show the main packages list */}
                       {packages.map(p => {
                         const owner = partners.find(user => user.id === p.ownerId);
                         return (
@@ -2118,6 +2124,138 @@ function QuickPackageForm({ onRegister, currentLevel }: { onRegister: (w: number
         </button>
       </div>
     </form>
+  );
+}
+
+function EstimatorView({ currentUser }: { currentUser: UserProfile }) {
+  const [link, setLink] = useState('');
+  const [valueUSD, setValueUSD] = useState('');
+  const [weight, setWeight] = useState('');
+  const [origin, setOrigin] = useState<Origin>(Origin.LAREDO);
+  const [exchangeRate, setExchangeRate] = useState('8.00');
+
+  const parsedValueUSD = parseFloat(valueUSD) || 0;
+  const parsedWeight = parseFloat(weight) || 0;
+  const parsedExchangeRate = parseFloat(exchangeRate) || 8.0;
+
+  const valueGTQ = parsedValueUSD * parsedExchangeRate;
+  const tax = valueGTQ * 0.12;
+  const shippingRate = LEVEL_MAP[currentUser.level].rates[origin];
+  const shippingCost = parsedWeight * shippingRate;
+  const total = valueGTQ + tax + shippingCost;
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div className="space-y-8 estimator-container">
+      <header className="hide-on-print">
+        <h1 className="text-3xl font-black text-brand-gray-dark italic">Cotizador <span className="text-brand-orange">Inteligente</span></h1>
+        <p className="text-gray-400">Calcula tus costos de importación y genera un PDF.</p>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Formulario */}
+        <div className="glass-card p-8 shadow-sm hide-on-print">
+          <h3 className="font-bold text-xl mb-6 text-brand-gray-dark">Datos del Producto</h3>
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Link del Producto</label>
+              <input type="text" value={link} onChange={e => setLink(e.target.value)} placeholder="https://amazon.com/..." className="w-full input-field text-sm font-bold" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Valor (USD)</label>
+                <input type="number" min="0" step="0.01" value={valueUSD} onChange={e => setValueUSD(e.target.value)} placeholder="0.00" className="w-full input-field text-sm font-bold" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Tasa de Cambio (Q)</label>
+                <input type="number" min="1" step="0.01" value={exchangeRate} onChange={e => setExchangeRate(e.target.value)} className="w-full input-field text-sm font-bold" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Peso (Libras)</label>
+                <input type="number" min="0" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0.0" className="w-full input-field text-sm font-bold" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Origen</label>
+                <select value={origin} onChange={e => setOrigin(e.target.value as Origin)} className="w-full input-field text-sm font-bold bg-white">
+                  <option value={Origin.LAREDO}>Laredo</option>
+                  <option value={Origin.MEXICO}>México</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Vista de Cotización (PDF) */}
+        <div className="print-area bg-white p-8 rounded-3xl border border-gray-100 shadow-xl relative overflow-hidden">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -z-10"></div>
+           <div className="flex justify-between items-start mb-8 border-b border-gray-100 pb-6">
+              <div>
+                <div className="w-12 h-12 orange-gradient rounded-xl flex items-center justify-center font-bold text-xl text-white mb-3 shadow-md">YB</div>
+                <h2 className="text-2xl font-black text-brand-gray-dark">Cotización de Envío</h2>
+                <p className="text-xs text-gray-400 mt-1">Generado por: {currentUser.name}</p>
+                <p className="text-xs text-gray-400">Nivel de Socio: {currentUser.level}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Fecha</p>
+                <p className="text-sm font-bold text-brand-gray-dark">{new Date().toLocaleDateString()}</p>
+              </div>
+           </div>
+
+           <div className="space-y-6 mb-8">
+              {link && (
+                <div>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Producto</p>
+                  <p className="text-xs text-indigo-600 truncate underline">{link}</p>
+                </div>
+              )}
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded-2xl">
+                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Detalles de Carga</p>
+                   <p className="text-sm font-bold text-brand-gray-dark">{parsedWeight} lbs desde {origin}</p>
+                   <p className="text-xs text-gray-500 mt-1">Tarifa: Q{shippingRate}/lb</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-2xl">
+                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Declarado</p>
+                   <p className="text-sm font-bold text-brand-gray-dark">${parsedValueUSD.toFixed(2)} USD</p>
+                   <p className="text-xs text-gray-500 mt-1">Q{valueGTQ.toFixed(2)} (TC: {parsedExchangeRate})</p>
+                </div>
+              </div>
+           </div>
+
+           <div className="space-y-3 border-t border-gray-100 pt-6 mb-8">
+              <div className="flex justify-between text-sm">
+                 <span className="text-gray-500 font-medium">Flete Internacional</span>
+                 <span className="font-bold text-brand-gray-dark">Q{shippingCost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                 <span className="text-gray-500 font-medium">Impuestos (12%)</span>
+                 <span className="font-bold text-brand-gray-dark">Q{tax.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xl pt-4 border-t border-dashed border-gray-200">
+                 <span className="font-black text-brand-gray-dark uppercase">Total Estimado</span>
+                 <span className="font-black text-brand-orange">Q{total.toFixed(2)}</span>
+              </div>
+           </div>
+
+           <div className="text-center text-[10px] text-gray-400 italic">
+              * Esta cotización es un estimado basado en los datos proporcionados y la tarifa actual del nivel {currentUser.level}. Los costos finales pueden variar ligeramente según el peso real y ajustes aduanales.
+           </div>
+
+           <button 
+             onClick={handlePrint}
+             className="hide-on-print mt-8 w-full btn-primary py-4 text-sm flex items-center justify-center gap-2"
+           >
+             <Download size={16} /> Descargar PDF / Imprimir
+           </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
