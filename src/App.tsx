@@ -1635,6 +1635,13 @@ export default function App() {
                 </div>
               </motion.div>
             )}
+
+            {/* Estimator Tab */}
+            {activeTab === 'estimator' && (
+              <motion.div key="estimator-view" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <EstimatorView currentUser={currentUser} />
+              </motion.div>
+            )}
           </AnimatePresence>
 
           {/* Deposit Modal */}
