@@ -1982,9 +1982,13 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
               {selectedPartner.status === UserStatus.PENDING && (
                 <div className="p-8 bg-gray-50 border-t border-gray-100">
                   <button 
-                    onClick={() => {
-                      onApprove(selectedPartner.id);
-                      setSelectedPartner(null);
+                    onClick={async () => {
+                      try {
+                        await onApprove(selectedPartner.id);
+                        setSelectedPartner(null);
+                      } catch (err) {
+                        console.error(err);
+                      }
                     }}
                     className="w-full py-4 bg-brand-orange text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-orange/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
