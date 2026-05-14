@@ -1956,24 +1956,46 @@ export default function App() {
           <DepositModal 
             isOpen={isDepositModalOpen} 
             onClose={() => setIsDepositModalOpen(false)} 
-            onDeposit={(amount, proof) => {
-              const newTransaction: Transaction = {
-                id: `t-${Date.now()}`,
-                amount,
-                type: 'deposit',
-                description: 'Carga de Saldo (Pendiente de Aprobación)',
-                createdAt: new Date().toISOString(),
-                status: 'pending'
-              };
-              setTransactions([newTransaction, ...transactions]);
-              setIsDepositModalOpen(false);
-              alert('Depósito registrado. El saldo se acreditará una vez que el administrador valide tu comprobante.');
+            onDeposit={async (amount, proof) => {
+              setIsLoading(true);
+              try {
+                let slipUrl = null;
+                if (proof) {
+                  const fileExt = proof.name.split('.').pop();
+                  const fileName = `${currentUser.id}-recharge-${Date.now()}.${fileExt}`;
+                  const { error: uploadError, data } = await supabase.storage
+                    .from('boletas')
+                    .upload(fileName, proof);
+                  if (uploadError) throw uploadError;
+                  const { data: { publicUrl } } = supabase.storage.from('boletas').getPublicUrl(fileName);
+                  slipUrl = publicUrl;
+                }
+
+                const { error } = await supabase
+                  .from('partners')
+                  .update({
+                    pending_recharge_amount: amount,
+                    pending_recharge_slip_url: slipUrl
+                  })
+                  .eq('id', currentUser.id);
+
+                if (error) throw error;
+
+                alert('Depósito registrado. El saldo se acreditará una vez que el administrador valide tu comprobante.');
+                setIsDepositModalOpen(false);
+              } catch (error: any) {
+                console.error('Error saving deposit:', error);
+                alert(`Error al registrar depósito: ${error.message}`);
+              } finally {
+                setIsLoading(false);
+              }
             }}
           />
 
         </div>
       </main>
     </div>
+
   );
 }
 
