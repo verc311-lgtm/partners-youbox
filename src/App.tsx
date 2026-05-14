@@ -1061,7 +1061,7 @@ export default function App() {
             {/* Admin - Socios List */}
             {currentUser.role === UserRole.ADMIN && activeTab === 'users' && (
               <motion.div key="admin-users" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <AdminPartnersView partners={partners} />
+                <AdminPartnersView partners={partners} onApprove={handleApproveTransaction} />
               </motion.div>
             )}
 
