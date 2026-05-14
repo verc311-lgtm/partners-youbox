@@ -479,6 +479,18 @@ export default function App() {
     }
   }, [currentLevel, currentUser?.level, currentUser?.totalLbsThisMonth]);
 
+  // Real-time stats calculation
+  const calculatedStats = useMemo(() => {
+    if (!currentUser) return { totalLbs: 0, inTransitLbs: 0, referralLbs: 0, earnings: 0 };
+    
+    const totalLbs = packages.reduce((acc, p) => acc + (p.weight || 0), 0);
+    const inTransitLbs = packages.filter(p => p.status !== 'ENTREGADO' && p.status !== 'PAGADO').reduce((acc, p) => acc + (p.weight || 0), 0);
+    const referralLbs = partners.reduce((acc, p) => acc + (p.totalLbsThisMonth || 0), 0);
+    const earnings = referralLbs * 2; // Example commission
+
+    return { totalLbs, inTransitLbs, referralLbs, earnings };
+  }, [packages, partners, currentUser?.id]);
+
   const levelProgress = useMemo(() => {
     if (!currentUser) return { percentage: 0, remaining: 0 };
     const nextLevel = currentUser.level === UserLevel.EXPLORADOR ? UserLevel.EMPRENDEDOR : 
@@ -491,18 +503,6 @@ export default function App() {
     const progress = Math.min((calculatedStats.totalLbs / target) * 100, 100);
     return { percentage: progress, remaining: target - calculatedStats.totalLbs };
   }, [currentUser?.level, calculatedStats.totalLbs]);
-
-  // Real-time stats calculation
-  const calculatedStats = useMemo(() => {
-    if (!currentUser) return { totalLbs: 0, inTransitLbs: 0, referralLbs: 0, earnings: 0 };
-    
-    const totalLbs = packages.reduce((acc, p) => acc + (p.weight || 0), 0);
-    const inTransitLbs = packages.filter(p => p.status !== 'ENTREGADO' && p.status !== 'PAGADO').reduce((acc, p) => acc + (p.weight || 0), 0);
-    const referralLbs = partners.reduce((acc, p) => acc + (p.totalLbsThisMonth || 0), 0);
-    const earnings = referralLbs * 2; // Example commission
-
-    return { totalLbs, inTransitLbs, referralLbs, earnings };
-  }, [packages, partners, currentUser?.id]);
 
   // --- AUTH SCREENS ---
   if (isLoading) {
