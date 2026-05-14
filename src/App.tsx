@@ -123,10 +123,19 @@ export default function App() {
       )
       .subscribe();
 
+    const partnersChannel = supabase.channel('partners-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partners' }, () => {
+        if (currentUser?.role === UserRole.ADMIN) {
+          fetchAllPartners();
+        }
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(partnersChannel);
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.role]);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -347,7 +356,15 @@ export default function App() {
 
       if (authData.user) {
         // Generate partner code (simplified for Phase 2)
-        const partnerCode = `YBP-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+        // Generate sequential partner code
+        const { count, error: countError } = await supabase
+          .from('partners')
+          .select('*', { count: 'exact', head: true });
+
+        if (countError) throw countError;
+        
+        const nextNumber = (count || 0) + 1;
+        const partnerCode = `YBP${nextNumber}`;
         const referralCode = `${partnerCode}-REF`;
         
         const now = new Date();
@@ -678,18 +695,44 @@ export default function App() {
   const handleApproveTransaction = async (partnerId: string) => {
     try {
       setIsLoading(true);
-      const { error } = await supabase
+      
+      // 1. Get partner data
+      const partner = partners.find(p => p.id === partnerId);
+      if (!partner) throw new Error('Socio no encontrado');
+
+      // 2. Update partner status
+      const { error: partnerError } = await supabase
         .from('partners')
         .update({ 
           status: UserStatus.ACTIVE, 
           is_active: true,
-          wallet_balance: 500 // Welcome balance or deposit
+          wallet_balance: 500
         })
         .eq('id', partnerId);
 
-      if (error) throw error;
+      if (partnerError) throw partnerError;
 
-      alert('Socio activado exitosamente.');
+      // 3. Sync with main App (clientes table)
+      // ID: c3416dd1-810f-4929-a048-2d1015707cb0 (You Box Partners branch)
+      const { error: clientError } = await supabase
+        .from('clientes')
+        .insert([{
+          id: partner.id,
+          nombre: partner.name.split(' ')[0],
+          apellido: partner.name.split(' ').slice(1).join(' ') || '.',
+          email: partner.email,
+          telefono: partner.phone,
+          locker_id: partner.partnerCode,
+          sucursal_id: 'c3416dd1-810f-4929-a048-2d1015707cb0',
+          activo: true,
+          notas: `Socio activado desde Partners App. Código: ${partner.partnerCode}`
+        }]);
+
+      if (clientError) {
+        console.warn('Note: Client record might already exist or failed to sync:', clientError.message);
+      }
+
+      alert('Socio activado y sincronizado con el sistema principal.');
       fetchAllPartners();
     } catch (error: any) {
       alert(`Error al activar socio: ${error.message}`);
