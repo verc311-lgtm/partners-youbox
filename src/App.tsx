@@ -471,8 +471,9 @@ export default function App() {
           {/* Footer Links */}
           <div className="mt-6 flex flex-col items-center gap-3">
             <a 
-              href="#" 
-              onClick={(e) => { e.preventDefault(); alert('Términos y Condiciones del programa de Socios YouBox Partners. (Documento pendiente de cargar)'); }}
+              href="https://partners.youboxgt.com/privacy-policy/" 
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-xs text-gray-400 hover:text-brand-orange transition-colors flex items-center gap-1"
             >
               <Shield size={12} /> Términos y Condiciones
@@ -2721,7 +2722,12 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
           />
           <span className="text-xs text-gray-500 leading-relaxed">
             Acepto los{' '}
-            <a href="#" onClick={(e) => { e.preventDefault(); alert('Términos y Condiciones del programa de Socios YouBox Partners. (Documento pendiente de cargar)'); }} className="text-brand-orange font-bold hover:underline">
+            <a 
+              href="https://partners.youboxgt.com/privacy-policy/" 
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-orange font-bold hover:underline"
+            >
               Términos y Condiciones
             </a>{' '}
             del programa de Socios y confirmo el depósito de Q500.00 de activación.
