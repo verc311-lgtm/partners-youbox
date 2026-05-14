@@ -340,7 +340,51 @@ export default function App() {
   };
 
   const fetchPendingTransactions = async () => {
-    // Transaction logic will be implemented as needed
+    try {
+      // Fetch partners who submitted a deposit slip but haven't been activated yet
+      const { data, error } = await supabase
+        .from('partners')
+        .select('id, name, email, partner_code, wallet_balance, deposit_slip_url, registered_at, pending_recharge_amount')
+        .eq('status', 'active')
+        .not('pending_recharge_amount', 'is', null)
+        .gt('pending_recharge_amount', 0);
+
+      if (error) {
+        // pending_recharge_amount column might not exist yet — fetch partners with deposit slip as fallback
+        const { data: fallback } = await supabase
+          .from('partners')
+          .select('id, name, email, partner_code, wallet_balance, deposit_slip_url, registered_at')
+          .eq('status', 'pending')
+          .not('deposit_slip_url', 'is', null);
+
+        if (fallback) {
+          const txs: Transaction[] = fallback.map(p => ({
+            id: p.id,
+            amount: 500, // activation deposit
+            type: 'deposit' as const,
+            description: `Activación de socio: ${p.partner_code}`,
+            createdAt: p.registered_at,
+            status: 'pending' as const,
+          }));
+          setTransactions(txs);
+        }
+        return;
+      }
+
+      if (data) {
+        const txs: Transaction[] = data.map(p => ({
+          id: p.id,
+          amount: p.pending_recharge_amount,
+          type: 'deposit' as const,
+          description: `Recarga de saldo: ${p.partner_code} (${p.name})`,
+          createdAt: p.registered_at,
+          status: 'pending' as const,
+        }));
+        setTransactions(txs);
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+    }
   };
 
 
@@ -784,6 +828,44 @@ export default function App() {
     }
   };
 
+  const handleApproveDeposit = async (partnerId: string) => {
+    try {
+      // Get current partner data
+      const { data: partnerData, error: fetchError } = await supabase
+        .from('partners')
+        .select('wallet_balance, pending_recharge_amount, name')
+        .eq('id', partnerId)
+        .single();
+
+      if (fetchError || !partnerData) {
+        // Fallback: this might be a pending activation — approve it
+        await handleApproveTransaction(partnerId);
+        return;
+      }
+
+      const rechargeAmount = partnerData.pending_recharge_amount || 0;
+      const newBalance = (partnerData.wallet_balance || 0) + rechargeAmount;
+
+      const { error } = await supabase
+        .from('partners')
+        .update({ 
+          wallet_balance: newBalance,
+          pending_recharge_amount: null 
+        })
+        .eq('id', partnerId);
+
+      if (error) throw error;
+
+      alert(`✅ Saldo de Q${rechargeAmount.toFixed(2)} acreditado a ${partnerData.name}.`);
+      await fetchAllPartners();
+      await fetchPendingTransactions();
+
+    } catch (error: any) {
+      console.error('Deposit approval error:', error);
+      alert(`Error al acreditar saldo: ${error.message}`);
+    }
+  };
+
   const handleUpdateEmailAndActivate = async (partnerId: string, newEmail: string) => {
     try {
       setIsLoading(true);
@@ -1165,7 +1247,7 @@ export default function App() {
             {/* Admin - Approvals */}
             {currentUser.role === UserRole.ADMIN && activeTab === 'approvals' && (
               <motion.div key="admin-approvals" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <AdminApprovals transactions={transactions} onApprove={handleApproveTransaction} />
+              <AdminApprovals transactions={transactions} onApprove={handleApproveDeposit} />
               </motion.div>
             )}
 
