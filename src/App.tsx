@@ -175,14 +175,15 @@ export default function App() {
         };
         setCurrentUser(profile);
         
-        // Fetch additional data if active
-        if (profile.status === UserStatus.ACTIVE) {
+        // Fetch additional data if admin (always) or active partner
+        if (profile.role === UserRole.ADMIN) {
+          fetchAllPartners();
+          fetchPendingTransactions();
+          fetchPackages(profile.id, profile.role); // Admin sees all packages
+          fetchReferrals(profile.id, profile.role);
+        } else if (profile.status === UserStatus.ACTIVE) {
           fetchPackages(profile.id, profile.role);
           fetchReferrals(profile.id, profile.role);
-          if (profile.role === UserRole.ADMIN) {
-            fetchAllPartners();
-            fetchPendingTransactions();
-          }
         }
       }
     } catch (error) {
