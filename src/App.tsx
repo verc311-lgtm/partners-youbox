@@ -1856,6 +1856,34 @@ export default function App() {
 function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], onApprove: (id: string) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPartner, setSelectedPartner] = useState<UserProfile | null>(null);
+  const [resetPasswordFor, setResetPasswordFor] = useState<UserProfile | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordFor) return;
+    if (newPassword.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    setIsResetting(true);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: resetPasswordFor.id, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      alert(`✅ Contraseña de ${resetPasswordFor.name} actualizada correctamente.`);
+      setResetPasswordFor(null);
+      setNewPassword('');
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const filtered = partners.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -2013,6 +2041,20 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
                   </div>
                 </div>
 
+                {/* Admin Actions */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setResetPasswordFor(selectedPartner);
+                      setSelectedPartner(null);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-black text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all uppercase tracking-widest"
+                  >
+                    <Shield size={14} />
+                    Cambiar Contraseña
+                  </button>
+                </div>
+
                 {/* Deposit Slip Section */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -2064,6 +2106,71 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
                   </button>
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reset Password Modal */}
+      <AnimatePresence>
+        {resetPasswordFor && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => { setResetPasswordFor(null); setNewPassword(''); }}
+              className="absolute inset-0 bg-brand-gray-dark/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-8 border-b border-gray-100">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-brand-orange/10 flex items-center justify-center text-brand-orange text-2xl font-black">
+                    {resetPasswordFor.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-brand-gray-dark">Cambiar Contraseña</h2>
+                    <p className="text-sm text-gray-400">{resetPasswordFor.name} · {resetPasswordFor.partnerCode}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                  <p className="text-xs text-amber-700 font-medium leading-relaxed">
+                    🔒 La nueva contraseña se aplicará inmediatamente. Comparte la contraseña con el socio de forma segura.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em]">Nueva Contraseña</label>
+                  <input
+                    type="text"
+                    placeholder="Mínimo 6 caracteres"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full input-field font-bold font-mono tracking-widest"
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-gray-300 pl-1">Mínimo 6 caracteres.</p>
+                </div>
+              </div>
+
+              <div className="p-8 pt-0 flex gap-3">
+                <button
+                  onClick={() => { setResetPasswordFor(null); setNewPassword(''); }}
+                  className="flex-1 py-3 rounded-2xl border border-gray-200 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleResetPassword}
+                  disabled={isResetting}
+                  className="flex-1 py-3 rounded-2xl bg-brand-orange text-white text-sm font-black disabled:opacity-50 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg shadow-brand-orange/20"
+                >
+                  {isResetting ? 'Actualizando...' : 'Guardar Contraseña'}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
