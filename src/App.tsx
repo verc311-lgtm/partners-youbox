@@ -33,7 +33,8 @@ import {
   Calculator,
   Trash2,
   MessageSquare,
-  Plus
+  Plus,
+  FileX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
