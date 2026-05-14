@@ -198,20 +198,32 @@ export default function App() {
 
   const fetchPackages = async (partnerId: string, role: UserRole) => {
     try {
-      let query = supabase.from('paquetes').select('*, clientes!inner(id, nombre, apellido, partner_id)');
+      let query;
       
-      if (role !== UserRole.ADMIN) {
-        query = query.eq('clientes.partner_id', partnerId);
+      if (role === UserRole.ADMIN) {
+        // Admin sees all packages with client info
+        query = supabase
+          .from('paquetes')
+          .select('*, clientes(id, nombre, apellido)')
+          .order('created_at', { ascending: false });
+      } else {
+        // Partner: their partner ID IS the same as their cliente ID (synced by trigger)
+        // Fetch packages where cliente_id = partner's auth user ID
+        query = supabase
+          .from('paquetes')
+          .select('*, clientes(id, nombre, apellido)')
+          .eq('cliente_id', partnerId)
+          .order('created_at', { ascending: false });
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const { data, error } = await query;
       if (error) throw error;
 
       if (data) {
         const mappedPackages: PackageType[] = data.map(p => ({
           id: p.id,
-          ownerId: p.clientes.id,
-          ownerName: `${p.clientes.nombre} ${p.clientes.apellido}`,
+          ownerId: p.clientes?.id || partnerId,
+          ownerName: p.clientes ? `${p.clientes.nombre} ${p.clientes.apellido}` : 'Socio',
           trackingNumber: p.tracking,
           weight: p.peso_lbs || 0,
           origin: p.bodega_id?.toLowerCase().includes('mexico') ? Origin.MEXICO : Origin.LAREDO,
