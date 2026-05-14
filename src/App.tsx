@@ -2679,7 +2679,7 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
         <p className="text-[10px] text-gray-400 leading-relaxed">
           <strong>Demo rápido:</strong> haz clic en <br/>
           <button type="button" onClick={() => handleDemoLogin('juan@example.com', '+502 5555-1234')} className="font-mono text-brand-orange hover:underline mt-1">juan@example.com</button> o <br/>
-          <button type="button" onClick={() => handleDemoLogin('admin@youboxgt.com', '+502 2222-0000')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
+          <button type="button" onClick={() => handleDemoLogin('admin@youboxgt.com', 'Youbox2026')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
         </p>
       </div>
     </motion.form>
