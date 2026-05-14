@@ -59,174 +59,105 @@ import {
   Package as PackageType,
   UserRole,
   UserStatus,
+import { 
+  UserLevel, 
+  Origin, 
+  LEVEL_MAP, 
+  UserProfile, 
+  Transaction, 
+  Package as PackageType,
+  UserRole,
+  UserStatus,
   Notification as NotificationType
 } from './types';
 import { cn } from './lib/utils';
+import { supabase } from './lib/supabase';
+
+// Mock data removed for Phase 2 real integration
 
 // Mock Data
-const INITIAL_USER: UserProfile = {
-  id: 'user-1',
-  name: 'Juan Pérez',
-  email: 'juan@example.com',
-  phone: '+502 5555-1234',
-  password: '+502 5555-1234',
-  level: UserLevel.MASTER_BOX,
-  role: UserRole.PARTNER,
-  status: UserStatus.ACTIVE,
-  isActive: true,
-  walletBalance: 500.00,
-  referralBalance: 150.00,
-  frozenBalance: 0,
-  sponsorId: 'admin-1',
-  partnerCode: 'YBP001',
-  referralCode: 'YBP001-REF',
-  totalLbsThisMonth: 15,
-  referralLbsThisMonth: 120,
-  earningsThisMonth: 600.00,
-  totalEarnings: 2450.00,
-  inTransitLbs: 8.5,
-  registeredAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-  gracePeriodEnd: new Date(Date.now() + 86400000 * 30).toISOString(),
-  acceptedTerms: true,
-  notifications: [],
-};
+// Real integration with Supabase - start from 0
 
-const MOCK_ADMIN: UserProfile = {
-  id: 'admin-1',
-  name: 'Soporte YouBox',
-  email: 'admin@youboxgt.com',
-  phone: '+502 2222-0000',
-  password: '+502 2222-0000',
-  level: UserLevel.MASTER_BOX,
-  role: UserRole.ADMIN,
-  status: UserStatus.ACTIVE,
-  isActive: true,
-  walletBalance: 0,
-  referralBalance: 0,
-  frozenBalance: 0,
-  partnerCode: 'YBP-ADMIN',
-  referralCode: 'YBP-ADMIN-REF',
-  totalLbsThisMonth: 0,
-  referralLbsThisMonth: 0,
-  earningsThisMonth: 0,
-  totalEarnings: 0,
-  inTransitLbs: 0,
-  registeredAt: new Date().toISOString(),
-  gracePeriodEnd: new Date().toISOString(),
-  acceptedTerms: true,
-  notifications: [],
-};
-
-const MOCK_PARTNERS: UserProfile[] = [
-  INITIAL_USER,
-  {
-    id: 'user-2',
-    name: 'Ana García',
-    email: 'ana@example.com',
-    phone: '+502 5555-5678',
-    password: '+502 5555-5678',
-    level: UserLevel.EMPRENDEDOR,
-    role: UserRole.PARTNER,
-    status: UserStatus.ACTIVE,
-    isActive: true,
-    walletBalance: 120.50,
-    referralBalance: 40.00,
-    frozenBalance: 0,
-    sponsorId: 'user-1',
-    partnerCode: 'YBP002',
-    referralCode: 'YBP002-REF',
-    totalLbsThisMonth: 22,
-    referralLbsThisMonth: 45,
-    earningsThisMonth: 225.00,
-    totalEarnings: 1100.00,
-    inTransitLbs: 12,
-    registeredAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-    gracePeriodEnd: new Date(Date.now() + 86400000 * 45).toISOString(),
-    acceptedTerms: true,
-    notifications: [],
-  },
-  {
-    id: 'user-3',
-    name: 'Carlos Ruiz',
-    email: 'carlos@example.com',
-    phone: '+502 5555-9012',
-    password: '+502 5555-9012',
-    level: UserLevel.EXPLORADOR,
-    role: UserRole.PARTNER,
-    status: UserStatus.PENDING,
-    isActive: false,
-    walletBalance: 0,
-    referralBalance: 0,
-    frozenBalance: 10.00,
-    sponsorId: 'user-1',
-    partnerCode: 'YBP003',
-    referralCode: 'YBP003-REF',
-    totalLbsThisMonth: 5,
-    referralLbsThisMonth: 0,
-    earningsThisMonth: 0,
-    totalEarnings: 0,
-    inTransitLbs: 0,
-    registeredAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    gracePeriodEnd: new Date(Date.now() + 86400000 * 58).toISOString(),
-    acceptedTerms: true,
-    notifications: [
-      {
-        id: 'n-1',
-        title: '¡Tienes dinero congelado!',
-        message: 'Un referido tuyo acaba de facturar. Tienes Q10.00 congelados. Activa tu cuenta para no perderlos.',
-        type: 'frozen_commission',
-        isRead: false,
-        createdAt: new Date(Date.now() - 3600000).toISOString()
-      }
-    ],
-  }
-];
-
-let NEXT_PARTNER_NUMBER = 4; // YBP004 will be the next one
-
-const INITIAL_TRANSACTIONS: Transaction[] = [
-  {
-    id: 't-1',
-    amount: 500,
-    type: 'deposit',
-    description: 'Depósito Inicial de Socio',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    status: 'completed'
-  }
-];
-
-const INITIAL_PACKAGES: PackageType[] = [
-  {
-    id: 'p-initial-1',
-    ownerId: 'user-2', // Package belongs to Ana
-    trackingNumber: 'MEX-9920112',
-    weight: 5.0,
-    origin: Origin.MEXICO,
-    cost: 150.00,
-    status: 'En Ruta',
-    createdAt: new Date(Date.now() - 86400000 * 3).toISOString()
-  },
-  {
-    id: 'p-initial-2',
-    ownerId: 'user-3', // Package belongs to Carlos
-    trackingNumber: 'LRD-7781290',
-    weight: 3.5,
-    origin: Origin.LAREDO,
-    cost: 245.00,
-    status: 'Aduana',
-    createdAt: new Date(Date.now() - 86400000 * 1).toISOString()
-  }
-];
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [partners, setPartners] = useState<UserProfile[]>(MOCK_PARTNERS);
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
-  const [packages, setPackages] = useState<PackageType[]>(INITIAL_PACKAGES);
+  const [partners, setPartners] = useState<UserProfile[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [packages, setPackages] = useState<PackageType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'wallet' | 'packages' | 'referrals' | 'reports' | 'users' | 'approvals' | 'estimator'>('dashboard');
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
+
+  // Handle Auth State Changes
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setCurrentUser(null);
+        setIsLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('partners')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        // Map snake_case from DB to camelCase in UserProfile interface
+        const profile: UserProfile = {
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          phone: data.phone,
+          level: data.level as UserLevel,
+          role: data.role as UserRole,
+          status: data.status as UserStatus,
+          isActive: data.is_active,
+          sponsorId: data.sponsor_id,
+          walletBalance: data.wallet_balance,
+          referralBalance: data.referral_balance,
+          frozenBalance: data.frozen_balance,
+          totalLbsThisMonth: data.total_lbs_this_month,
+          referralLbsThisMonth: data.referral_lbs_this_month,
+          earningsThisMonth: 0, // Calculated separately if needed
+          totalEarnings: 0,
+          inTransitLbs: 0,
+          partnerCode: data.partner_code,
+          referralCode: data.referral_code,
+          registeredAt: data.registered_at,
+          gracePeriodEnd: data.grace_period_end,
+          acceptedTerms: data.accepted_terms,
+          notifications: []
+        };
+        setCurrentUser(profile);
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   // Unread notifications count
   const unreadCount = currentUser?.notifications.filter(n => !n.isRead).length ?? 0;
@@ -253,94 +184,101 @@ export default function App() {
     }
   };
 
-  // Handle Registration — account starts PENDING until admin verifies deposit
-  const handleRegister = (name: string, email: string, phone: string, sponsorCode: string) => {
-    const num = NEXT_PARTNER_NUMBER++;
-    const code = `YBP${String(num).padStart(3, '0')}`;
-    const now = new Date();
-    const gracePeriod = new Date(now);
-    gracePeriod.setMonth(gracePeriod.getMonth() + 2);
+  // Handle Registration
+  const handleRegister = async (name: string, email: string, phone: string, sponsorCode: string) => {
+    try {
+      setIsLoading(true);
+      
+      // Ensure phone prefix +502
+      let formattedPhone = phone.trim();
+      if (!formattedPhone.startsWith('+')) {
+        formattedPhone = `+502${formattedPhone}`;
+      } else if (!formattedPhone.startsWith('+502')) {
+        // If it starts with + but not +502, we keep it as is or handle it. 
+        // User specifically asked to create with +502 prefix.
+        // Assuming if they type 55551234 -> +50255551234
+      }
 
-    // Find sponsor by referral code
-    const sponsor = partners.find(p => p.referralCode === sponsorCode);
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password: formattedPhone, // Initial password is phone
+        options: {
+          data: {
+            full_name: name,
+          }
+        }
+      });
 
-    const newUser: UserProfile = {
-      id: `user-${Date.now()}`,
-      name,
-      email,
-      phone,
-      level: UserLevel.MASTER_BOX,
-      role: UserRole.PARTNER,
-      status: UserStatus.PENDING,
-      isActive: false,
-      walletBalance: 0,
-      referralBalance: 0,
-      frozenBalance: 0,
-      sponsorId: sponsor?.id,
-      partnerCode: code,
-      referralCode: `${code}-REF`,
-      totalLbsThisMonth: 0,
-      referralLbsThisMonth: 0,
-      earningsThisMonth: 0,
-      totalEarnings: 0,
-      inTransitLbs: 0,
-      registeredAt: now.toISOString(),
-      gracePeriodEnd: gracePeriod.toISOString(),
-      acceptedTerms: true,
-      password: phone,
-      notifications: []
-    };
+      if (authError) throw authError;
 
-    // Deposit stays pending until admin approves
-    const depositTx: Transaction = {
-      id: `t-deposit-${Date.now()}`,
-      amount: 500,
-      type: 'deposit',
-      description: `Depósito Inicial - ${name} (${code})`,
-      createdAt: now.toISOString(),
-      status: 'pending'
-    };
+      if (authData.user) {
+        // Generate partner code (simplified for Phase 2)
+        const partnerCode = `YBP-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+        const referralCode = `${partnerCode}-REF`;
+        
+        const now = new Date();
+        const graceEnd = new Date(now);
+        graceEnd.setMonth(graceEnd.getMonth() + 2);
 
-    setPartners(prev => [...prev, newUser]);
-    setTransactions(prev => [depositTx, ...prev]);
-    setCurrentUser(newUser);
+        const { error: profileError } = await supabase
+          .from('partners')
+          .insert([
+            {
+              id: authData.user.id,
+              name,
+              email,
+              phone: formattedPhone,
+              partner_code: partnerCode,
+              referral_code: referralCode,
+              status: 'pending',
+              is_active: false,
+              grace_period_end: graceEnd.toISOString(),
+              accepted_terms: true
+            }
+          ]);
 
-    console.log(`[EMAIL ENVIADO] A: ${email} - Asunto: Tu solicitud de socio ${code} ha sido recibida. Estamos verificando tu depósito.`);
-    console.log(`[EMAIL ENVIADO] A: admin@youboxgt.com - Nuevo registro pendiente de ${name} (${code}). Verificar boleta de depósito.`);
+        if (profileError) throw profileError;
+
+        alert('Registro exitoso. Tu cuenta está pendiente de activación por depósito.');
+        setAuthScreen('login');
+      }
+    } catch (error: any) {
+      alert(`Error en el registro: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Handle Login
-  const handleLogin = (rawEmail: string, password?: string): 'success' | 'pending' | 'not_found' | 'invalid_password' => {
-    const email = rawEmail.trim().toLowerCase();
-    
-    // Check if it's admin
-    if (email === 'admin@youboxgt.com') {
-      if (password !== MOCK_ADMIN.password && password !== '') {
-        return 'invalid_password';
+  const handleLogin = async (email: string, password?: string) => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: password || '',
+      });
+
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) return 'invalid_password';
+        throw error;
       }
-      setCurrentUser(MOCK_ADMIN);
-      setActiveTab('dashboard');
+
       return 'success';
+    } catch (error: any) {
+      console.error('Login error:', error);
+      return 'not_found';
+    } finally {
+      setIsLoading(false);
     }
-    
-    // Check regular partners
-    const found = partners.find(p => p.email.trim().toLowerCase() === email);
-    if (found) {
-      if (found.password && password !== found.password && password !== '') {
-         return 'invalid_password';
-      }
-      setCurrentUser(found);
-      setActiveTab('dashboard');
-      return found.status === UserStatus.PENDING ? 'pending' : 'success';
-    }
-    return 'not_found';
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
     setAuthScreen('login');
     setActiveTab('dashboard');
   };
+
 
   // Level downgrade check (runs on login)
   useEffect(() => {
@@ -421,6 +359,14 @@ export default function App() {
   }, [currentUser?.level, currentUser?.totalLbsThisMonth]);
 
   // --- AUTH SCREENS ---
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-brand-orange border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -2528,24 +2474,24 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     if (!email) { setError('Ingresa tu correo electr\u00f3nico'); return; }
     if (!password) { setError('Ingresa tu contraseña'); return; }
     
-    const result = onLogin(email, password);
+    const result = await onLogin(email, password);
     if (result === 'not_found') {
       setError('No se encontr\u00f3 una cuenta con ese correo electr\u00f3nico.');
     } else if (result === 'invalid_password') {
       setError('Contraseña incorrecta.');
     }
-    // 'pending' and 'success' are handled by the parent component
   };
 
-  const handleDemoLogin = (demoEmail: string, demoPassword: string) => {
+  const handleDemoLogin = async (demoEmail: string, demoPassword: string) => {
     setEmail(demoEmail);
     setPassword(demoPassword);
+    await onLogin(demoEmail, demoPassword);
   }
 
   return (
@@ -2613,7 +2559,7 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     if (!name || !email || !phone) {
@@ -2628,7 +2574,7 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
       setError('Debes aceptar los Términos y Condiciones para continuar.');
       return;
     }
-    onRegister(name, email, phone, sponsorCode);
+    await onRegister(name, email, phone, sponsorCode);
   };
 
   return (
