@@ -710,12 +710,8 @@ export default function App() {
   const handleApproveTransaction = async (partnerId: string) => {
     try {
       setIsLoading(true);
+      console.log('Approving partner:', partnerId);
       
-      // 1. Get partner data
-      const partner = partners.find(p => p.id === partnerId);
-      if (!partner) throw new Error('Socio no encontrado');
-
-      // 2. Update partner status
       const { error: partnerError } = await supabase
         .from('partners')
         .update({ 
@@ -726,31 +722,12 @@ export default function App() {
         .eq('id', partnerId);
 
       if (partnerError) throw partnerError;
-
-      // 3. Sync with main App (clientes table)
-      // ID: c3416dd1-810f-4929-a048-2d1015707cb0 (You Box Partners branch)
-      const { error: clientError } = await supabase
-        .from('clientes')
-        .insert([{
-          id: partner.id,
-          nombre: partner.name.split(' ')[0],
-          apellido: partner.name.split(' ').slice(1).join(' ') || '.',
-          email: partner.email,
-          telefono: partner.phone,
-          locker_id: partner.partnerCode,
-          sucursal_id: 'c3416dd1-810f-4929-a048-2d1015707cb0',
-          activo: true,
-          notas: `Socio activado desde Partners App. Código: ${partner.partnerCode}`
-        }]);
-
-      if (clientError) {
-        console.warn('Note: Client record might already exist or failed to sync:', clientError.message);
-      }
-
-      alert('Socio activado y sincronizado con el sistema principal.');
-      fetchAllPartners();
+      
+      alert('¡Éxito! Socio activado y sincronizado con YouBox GT.');
+      await fetchAllPartners();
     } catch (error: any) {
-      alert(`Error al activar socio: ${error.message}`);
+      console.error('Activation error:', error);
+      alert(`Error al activar: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
