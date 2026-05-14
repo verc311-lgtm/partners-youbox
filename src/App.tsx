@@ -290,6 +290,23 @@ export default function App() {
       if (error) throw error;
 
       if (data) {
+        // Get current month lbs for all partners from paquetes table
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
+
+        const { data: lbsData } = await supabase
+          .from('paquetes')
+          .select('cliente_id, peso_lbs')
+          .gte('fecha_recepcion', monthStart)
+          .lte('fecha_recepcion', monthEnd);
+
+        // Sum lbs per partner id
+        const lbsByPartner: Record<string, number> = {};
+        (lbsData || []).forEach(pkg => {
+          lbsByPartner[pkg.cliente_id] = (lbsByPartner[pkg.cliente_id] || 0) + (pkg.peso_lbs || 0);
+        });
+
         const mappedPartners: UserProfile[] = data.map(p => ({
           id: p.id,
           name: p.name,
@@ -304,7 +321,7 @@ export default function App() {
           walletBalance: p.wallet_balance,
           referralBalance: p.referral_balance,
           frozenBalance: p.frozen_balance,
-          totalLbsThisMonth: p.total_lbs_this_month,
+          totalLbsThisMonth: lbsByPartner[p.id] || 0,
           referralLbsThisMonth: p.referral_lbs_this_month,
           registeredAt: p.registered_at,
           depositSlipUrl: p.deposit_slip_url,
@@ -1973,8 +1990,16 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
 
                 <div className="space-y-3">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-gray-400">Volumen Mensual</span>
-                    <span className="font-bold text-brand-gray-dark">{p.totalLbsThisMonth} lbs</span>
+                    <span className="text-gray-400">Registro</span>
+                    <span className="font-bold text-brand-gray-dark">
+                      {new Date(p.registeredAt).toLocaleDateString('es-GT', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400">Volumen este mes</span>
+                    <span className={`font-black ${p.totalLbsThisMonth >= 30 ? 'text-green-600' : p.totalLbsThisMonth >= 10 ? 'text-yellow-600' : 'text-red-400'}`}>
+                      {p.totalLbsThisMonth.toFixed(1)} lbs
+                    </span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-gray-400">Saldo Principal</span>
