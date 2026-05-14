@@ -112,6 +112,31 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Real-time subscriptions
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'paquetes'
+        },
+        () => {
+          console.log('Change detected in packages, re-fetching...');
+          fetchPackages(currentUser.id, currentUser.role);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id]);
+
   const fetchUserProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -123,7 +148,6 @@ export default function App() {
       if (error) throw error;
 
       if (data) {
-        // Map snake_case from DB to camelCase in UserProfile interface
         const profile: UserProfile = {
           id: data.id,
           name: data.name,
@@ -139,7 +163,7 @@ export default function App() {
           frozenBalance: data.frozen_balance,
           totalLbsThisMonth: data.total_lbs_this_month,
           referralLbsThisMonth: data.referral_lbs_this_month,
-          earningsThisMonth: 0, // Calculated separately if needed
+          earningsThisMonth: 0,
           totalEarnings: 0,
           inTransitLbs: 0,
           partnerCode: data.partner_code,
@@ -150,12 +174,129 @@ export default function App() {
           notifications: []
         };
         setCurrentUser(profile);
+        
+        // Fetch additional data if active
+        if (profile.status === UserStatus.ACTIVE) {
+          fetchPackages(profile.id, profile.role);
+          fetchReferrals(profile.id, profile.role);
+          if (profile.role === UserRole.ADMIN) {
+            fetchAllPartners();
+            fetchPendingTransactions();
+          }
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const fetchPackages = async (partnerId: string, role: UserRole) => {
+    try {
+      let query = supabase.from('paquetes').select('*, clientes!inner(id, nombre, apellido, partner_id)');
+      
+      if (role !== UserRole.ADMIN) {
+        query = query.eq('clientes.partner_id', partnerId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (error) throw error;
+
+      if (data) {
+        const mappedPackages: PackageType[] = data.map(p => ({
+          id: p.id,
+          ownerId: p.clientes.id,
+          ownerName: `${p.clientes.nombre} ${p.clientes.apellido}`,
+          trackingNumber: p.tracking,
+          weight: p.peso_lbs || 0,
+          origin: p.bodega_id?.toLowerCase().includes('mexico') ? Origin.MEXICO : Origin.LAREDO,
+          cost: p.valor_declarado || 0,
+          status: p.estado,
+          createdAt: p.created_at
+        }));
+        setPackages(mappedPackages);
+      }
+    } catch (error) {
+      console.error('Error fetching packages:', error);
+    }
+  };
+
+  const fetchReferrals = async (partnerId: string, role: UserRole) => {
+    try {
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('*')
+        .eq('partner_id', partnerId);
+
+      if (error) throw error;
+      
+      // In Partners app, we use partners array for referrals in Partner view
+      if (data && role !== UserRole.ADMIN) {
+        const mappedReferrals: UserProfile[] = data.map(c => ({
+          id: c.id,
+          name: `${c.nombre} ${c.apellido}`,
+          email: c.email || '',
+          phone: c.telefono || '',
+          level: UserLevel.EXPLORADOR,
+          role: UserRole.PARTNER,
+          status: c.activo ? UserStatus.ACTIVE : UserStatus.SUSPENDED,
+          isActive: c.activo,
+          partnerCode: c.locker_id,
+          referralCode: '',
+          walletBalance: 0,
+          referralBalance: 0,
+          frozenBalance: 0,
+          totalLbsThisMonth: 0,
+          referralLbsThisMonth: 0,
+          registeredAt: c.created_at,
+          notifications: []
+        }));
+        setPartners(mappedReferrals);
+      }
+    } catch (error) {
+      console.error('Error fetching referrals:', error);
+    }
+  };
+
+  const fetchAllPartners = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('partners')
+        .select('*')
+        .order('registered_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        const mappedPartners: UserProfile[] = data.map(p => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          phone: p.phone,
+          level: p.level as UserLevel,
+          role: p.role as UserRole,
+          status: p.status as UserStatus,
+          isActive: p.is_active,
+          partnerCode: p.partner_code,
+          referralCode: p.referral_code,
+          walletBalance: p.wallet_balance,
+          referralBalance: p.referral_balance,
+          frozenBalance: p.frozen_balance,
+          totalLbsThisMonth: p.total_lbs_this_month,
+          referralLbsThisMonth: p.referral_lbs_this_month,
+          registeredAt: p.registered_at,
+          notifications: []
+        }));
+        setPartners(mappedPartners);
+      }
+    } catch (error) {
+      console.error('Error fetching all partners:', error);
+    }
+  };
+
+  const fetchPendingTransactions = async () => {
+    // Transaction logic will be implemented as needed
   };
 
 
@@ -172,15 +313,17 @@ export default function App() {
     setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
   };
 
-  // Toggle for Demo
-  const toggleRole = () => {
+  // Toggle for Demo (Updated to fetch roles)
+  const toggleRole = async () => {
     if (!currentUser) return;
-    if (currentUser.role === UserRole.PARTNER) {
-      setCurrentUser(MOCK_ADMIN);
-      setActiveTab('dashboard');
+    const newRole = currentUser.role === UserRole.PARTNER ? UserRole.ADMIN : UserRole.PARTNER;
+    
+    // Update local state and re-fetch appropriate data
+    setCurrentUser(prev => prev ? { ...prev, role: newRole } : null);
+    if (newRole === UserRole.ADMIN) {
+      fetchAllPartners();
     } else {
-      setCurrentUser(INITIAL_USER);
-      setActiveTab('dashboard');
+      fetchReferrals(currentUser.id, newRole);
     }
   };
 
@@ -354,9 +497,21 @@ export default function App() {
     
     const nextConfig = LEVEL_MAP[nextLevel];
     const target = nextConfig.minLbs;
-    const progress = Math.min((currentUser.totalLbsThisMonth / target) * 100, 100);
-    return { percentage: progress, remaining: target - currentUser.totalLbsThisMonth };
-  }, [currentUser?.level, currentUser?.totalLbsThisMonth]);
+    const progress = Math.min((calculatedStats.totalLbs / target) * 100, 100);
+    return { percentage: progress, remaining: target - calculatedStats.totalLbs };
+  }, [currentUser?.level, calculatedStats.totalLbs]);
+
+  // Real-time stats calculation
+  const calculatedStats = useMemo(() => {
+    if (!currentUser) return { totalLbs: 0, inTransitLbs: 0, referralLbs: 0, earnings: 0 };
+    
+    const totalLbs = packages.reduce((acc, p) => acc + (p.weight || 0), 0);
+    const inTransitLbs = packages.filter(p => p.status !== 'ENTREGADO' && p.status !== 'PAGADO').reduce((acc, p) => acc + (p.weight || 0), 0);
+    const referralLbs = partners.reduce((acc, p) => acc + (p.totalLbsThisMonth || 0), 0);
+    const earnings = referralLbs * 2; // Example commission
+
+    return { totalLbs, inTransitLbs, referralLbs, earnings };
+  }, [packages, partners, currentUser?.id]);
 
   // --- AUTH SCREENS ---
   if (isLoading) {
@@ -529,45 +684,29 @@ export default function App() {
     }));
   };
 
-  const handleApproveTransaction = (id: string) => {
-    setTransactions(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' as const } : t));
-    const tx = transactions.find(t => t.id === id);
-    if (tx && tx.type === 'deposit') {
-      // If it's an initial deposit, activate the corresponding partner
-      const partnerCode = tx.description.match(/\(YBP\d+\)/)?.[0]?.replace(/[()]/g, '');
-      if (partnerCode) {
-        const now = new Date();
-        const gracePeriod = new Date(now);
-        gracePeriod.setMonth(gracePeriod.getMonth() + 2);
+  const handleApproveTransaction = async (partnerId: string) => {
+    try {
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('partners')
+        .update({ 
+          status: UserStatus.ACTIVE, 
+          is_active: true,
+          wallet_balance: 500 // Welcome balance or deposit
+        })
+        .eq('id', partnerId);
 
-        setPartners(prev => prev.map(p => {
-          if (p.partnerCode === partnerCode && p.status === UserStatus.PENDING) {
-            return {
-              ...p,
-              status: UserStatus.ACTIVE,
-              isActive: true,
-              walletBalance: 500,
-              gracePeriodEnd: gracePeriod.toISOString(),
-              notifications: [
-                {
-                  id: `n-welcome-${Date.now()}`,
-                  title: '¡Cuenta Activada!',
-                  message: `Tu depósito ha sido verificado. Bienvenido a YouBox Partners. Tu nivel Master Box tiene vigencia de 2 meses. Si al tercer mes no has procesado más de 30 libras, tu nivel bajará a Emprendedor.`,
-                  type: 'general',
-                  isRead: false,
-                  createdAt: now.toISOString()
-                },
-                ...p.notifications
-              ]
-            };
-          }
-          return p;
-        }));
-        console.log(`[EMAIL ENVIADO] A: ${partnerCode} - Asunto: ¡Tu cuenta ha sido activada! Ya puedes operar en YouBox Partners. Tu contraseña inicial es tu número de WhatsApp.`);
-      }
-      alert(`Depósito de Q${tx.amount} aprobado. Cuenta activada.`);
+      if (error) throw error;
+
+      alert('Socio activado exitosamente.');
+      fetchAllPartners();
+    } catch (error: any) {
+      alert(`Error al activar socio: ${error.message}`);
+    } finally {
+      setIsLoading(false);
     }
   };
+
 
   const handleMarkAsPaid = (packageId: string) => {
     const pkg = packages.find(p => p.id === packageId);
@@ -965,13 +1104,13 @@ export default function App() {
                   <StatCard 
                     icon={<TrendingUp className="text-brand-orange" size={24} />}
                     label="Volumen Mensual"
-                    value={`${currentUser.totalLbsThisMonth} lbs`}
+                    value={`${calculatedStats.totalLbs.toFixed(1)} lbs`}
                     footer="Volumen procesado"
                   />
                   <StatCard 
                     icon={<Truck className="text-yellow-600" size={24} />}
                     label="Libras en Camino"
-                    value={`${currentUser.inTransitLbs} lbs`}
+                    value={`${calculatedStats.inTransitLbs.toFixed(1)} lbs`}
                     footer="En tránsito / Aduana"
                   />
                   <StatCard 
@@ -983,13 +1122,13 @@ export default function App() {
                   <StatCard 
                     icon={<BarChart3 className="text-blue-600" size={24} />}
                     label="Libras Referidos"
-                    value={`${currentUser.referralLbsThisMonth} lbs`}
+                    value={`${calculatedStats.referralLbs.toFixed(1)} lbs`}
                     footer="Producción de red"
                   />
                   <StatCard 
                     icon={<TrendingUp className="text-purple-600" size={24} />}
                     label="Ganancias Red"
-                    value={`Q${currentUser.earningsThisMonth.toFixed(2)}`}
+                    value={`Q${calculatedStats.earnings.toFixed(2)}`}
                     footer="Créditos por red"
                   />
                 </div>
@@ -1619,7 +1758,47 @@ export default function App() {
   );
 }
 
-function AdminPartnersView({ partners }: { partners: UserProfile[] }) {
+function AdminApprovals({ transactions, onApprove }: { transactions: Transaction[], onApprove: (partnerId: string) => void }) {
+  // We'll actually fetch pending partners from the partners list for this view
+  const pendingPartners = useMemo(() => {
+    // This will be populated from the global partners state in the parent
+    return []; // Placeholder - will be filtered in the parent or passed as prop
+  }, [transactions]);
+
+  // For this version, we'll just show the partners with 'pending' status
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-black text-brand-gray-dark italic">Solicitudes <span className="text-brand-orange">Pendientes</span></h1>
+        <p className="text-gray-400">Verifica los depósitos de activación para habilitar nuevos socios.</p>
+      </div>
+
+      <div className="glass-card overflow-hidden shadow-sm border-gray-100">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+              <th className="px-6 py-4">Socio</th>
+              <th className="px-6 py-4">Código</th>
+              <th className="px-6 py-4">Fecha Registro</th>
+              <th className="px-6 py-4 text-right">Acción</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {/* The parent will pass the filtered pending partners here if we refactor, 
+                for now we use a simpler inline logic in the parent App.tsx */}
+            <tr className="hover:bg-gray-50/50 transition-colors">
+              <td className="px-6 py-8 text-center colspan-4 text-gray-400 italic">
+                Usa el listado de Socios para activar cuentas pendientes.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], onApprove: (id: string) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
   
   const filtered = partners.filter(p => 
@@ -1690,10 +1869,15 @@ function AdminPartnersView({ partners }: { partners: UserProfile[] }) {
                     <span className="text-gray-400">Saldo Principal</span>
                     <span className="font-bold text-brand-gray-dark">Q{p.walletBalance.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-gray-400">Saldo Referidos</span>
-                    <span className="font-bold text-indigo-600">Q{p.referralBalance.toFixed(2)}</span>
-                  </div>
+                  
+                  {p.status === UserStatus.PENDING && (
+                    <button 
+                      onClick={() => onApprove(p.id)}
+                      className="w-full mt-4 py-2 bg-brand-orange text-white rounded-lg font-bold text-xs hover:bg-brand-orange-dark transition-colors shadow-sm"
+                    >
+                      Activar Socio (Aprobar Depósito)
+                    </button>
+                  )}
                   {p.frozenBalance > 0 && (
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-yellow-600">Saldo Congelado</span>
