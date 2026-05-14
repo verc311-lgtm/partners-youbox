@@ -59,15 +59,6 @@ import {
   Package as PackageType,
   UserRole,
   UserStatus,
-import { 
-  UserLevel, 
-  Origin, 
-  LEVEL_MAP, 
-  UserProfile, 
-  Transaction, 
-  Package as PackageType,
-  UserRole,
-  UserStatus,
   Notification as NotificationType
 } from './types';
 import { cn } from './lib/utils';
@@ -1758,45 +1749,6 @@ export default function App() {
   );
 }
 
-function AdminApprovals({ transactions, onApprove }: { transactions: Transaction[], onApprove: (partnerId: string) => void }) {
-  // We'll actually fetch pending partners from the partners list for this view
-  const pendingPartners = useMemo(() => {
-    // This will be populated from the global partners state in the parent
-    return []; // Placeholder - will be filtered in the parent or passed as prop
-  }, [transactions]);
-
-  // For this version, we'll just show the partners with 'pending' status
-  return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-black text-brand-gray-dark italic">Solicitudes <span className="text-brand-orange">Pendientes</span></h1>
-        <p className="text-gray-400">Verifica los depósitos de activación para habilitar nuevos socios.</p>
-      </div>
-
-      <div className="glass-card overflow-hidden shadow-sm border-gray-100">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b border-gray-100">
-            <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-              <th className="px-6 py-4">Socio</th>
-              <th className="px-6 py-4">Código</th>
-              <th className="px-6 py-4">Fecha Registro</th>
-              <th className="px-6 py-4 text-right">Acción</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {/* The parent will pass the filtered pending partners here if we refactor, 
-                for now we use a simpler inline logic in the parent App.tsx */}
-            <tr className="hover:bg-gray-50/50 transition-colors">
-              <td className="px-6 py-8 text-center colspan-4 text-gray-400 italic">
-                Usa el listado de Socios para activar cuentas pendientes.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], onApprove: (id: string) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
