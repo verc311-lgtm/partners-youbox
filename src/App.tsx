@@ -64,6 +64,7 @@ import {
 } from './types';
 import { cn } from './lib/utils';
 import { supabase } from './lib/supabase';
+import { EmailConflictModal } from './EmailConflictModal';
 
 // Mock data removed for Phase 2 real integration
 
@@ -81,6 +82,7 @@ export default function App() {
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
+  const [emailConflict, setEmailConflict] = useState<{ partnerId: string; currentEmail: string } | null>(null);
 
   // Handle Auth State Changes
   useEffect(() => {
@@ -252,6 +254,11 @@ export default function App() {
           totalLbsThisMonth: 0,
           referralLbsThisMonth: 0,
           registeredAt: c.created_at,
+          earningsThisMonth: 0,
+          totalEarnings: 0,
+          inTransitLbs: 0,
+          gracePeriodEnd: null,
+          acceptedTerms: false,
           notifications: []
         }));
         setPartners(mappedReferrals);
@@ -289,6 +296,11 @@ export default function App() {
           referralLbsThisMonth: p.referral_lbs_this_month,
           registeredAt: p.registered_at,
           depositSlipUrl: p.deposit_slip_url,
+          earningsThisMonth: 0,
+          totalEarnings: 0,
+          inTransitLbs: 0,
+          gracePeriodEnd: p.grace_period_end,
+          acceptedTerms: p.accepted_terms,
           notifications: []
         }));
         setPartners(mappedPartners);
@@ -722,13 +734,57 @@ export default function App() {
         })
         .eq('id', partnerId);
 
-      if (partnerError) throw partnerError;
+      if (partnerError) {
+        // Check if the error is an email conflict from the trigger
+        if (partnerError.message?.includes('clientes_email_key') || partnerError.code === '23505') {
+          // Find the partner's current email to show in the modal
+          const partner = partners.find(p => p.id === partnerId);
+          setEmailConflict({ partnerId, currentEmail: partner?.email || '' });
+          return;
+        }
+        throw partnerError;
+      }
       
       alert('¡Éxito! Socio activado y sincronizado con YouBox GT.');
       await fetchAllPartners();
     } catch (error: any) {
       console.error('Activation error:', error);
       alert(`Error al activar: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateEmailAndActivate = async (partnerId: string, newEmail: string) => {
+    try {
+      setIsLoading(true);
+      
+      // 1. Update the partner's email
+      const { error: emailError } = await supabase
+        .from('partners')
+        .update({ email: newEmail })
+        .eq('id', partnerId);
+
+      if (emailError) throw emailError;
+
+      // 2. Now try to activate with the new email
+      const { error: activateError } = await supabase
+        .from('partners')
+        .update({ 
+          status: UserStatus.ACTIVE, 
+          is_active: true,
+          wallet_balance: 500
+        })
+        .eq('id', partnerId);
+
+      if (activateError) throw activateError;
+
+      setEmailConflict(null);
+      alert('¡Éxito! Correo actualizado y socio activado correctamente.');
+      await fetchAllPartners();
+    } catch (error: any) {
+      console.error('Update email error:', error);
+      alert(`Error al actualizar: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -874,6 +930,18 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden selection:bg-brand-orange/30 selection:text-brand-gray-dark">
+
+      {/* Email Conflict Modal */}
+      <AnimatePresence>
+        {emailConflict && (
+          <EmailConflictModal
+            currentEmail={emailConflict.currentEmail}
+            onUpdate={(newEmail) => handleUpdateEmailAndActivate(emailConflict.partnerId, newEmail)}
+            onCancel={() => setEmailConflict(null)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <nav className="w-64 bg-white border-r border-gray-200 flex flex-col p-6 space-y-8 shrink-0">
         <div className="flex items-center justify-between px-2">
@@ -2752,7 +2820,7 @@ function EstimatorView({ currentUser }: { currentUser: UserProfile }) {
   );
 }
 
-function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) => 'success' | 'pending' | 'not_found' | 'invalid_password' }) {
+function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) => Promise<'success' | 'pending' | 'not_found' | 'invalid_password'> | 'success' | 'pending' | 'not_found' | 'invalid_password' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -2986,3 +3054,4 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
     </motion.form>
   );
 }
+  
