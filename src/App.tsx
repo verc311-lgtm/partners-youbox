@@ -532,37 +532,6 @@ export default function App() {
   };
 
 
-  // Level downgrade check (runs on login)
-  useEffect(() => {
-    if (!currentUser || currentUser.role === UserRole.ADMIN) return;
-    
-    const graceEnd = new Date(currentUser.gracePeriodEnd);
-    const now = new Date();
-    
-    if (now > graceEnd && currentUser.level === UserLevel.MASTER_BOX && currentUser.totalLbsThisMonth < 30) {
-      const downgradeNotification: NotificationType = {
-        id: `n-downgrade-${Date.now()}`,
-        title: 'Nivel Ajustado',
-        message: 'Tu período de gracia de 2 meses como Master Box ha terminado. Al no haber procesado más de 30 lbs, tu nivel ha sido ajustado a Emprendedor.',
-        type: 'level_downgrade',
-        isRead: false,
-        createdAt: now.toISOString()
-      };
-
-      const updatedUser = {
-        ...currentUser,
-        level: UserLevel.EMPRENDEDOR,
-        notifications: [downgradeNotification, ...currentUser.notifications]
-      };
-
-      setCurrentUser(updatedUser);
-      setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
-      console.log(`[EMAIL ENVIADO] A: ${currentUser.email} - Asunto: Tu nivel ha cambiado a Emprendedor`);
-    }
-  }, [currentUser?.id]);
-
-
-
   // Chart Data
   const volumeData = [
     { name: 'Lun', volume: 12 },
@@ -587,15 +556,66 @@ export default function App() {
     return UserLevel.EXPLORADOR;
   }, [currentUser?.totalLbsThisMonth]);
 
-  // Sync levels if needed (simulating backend trigger)
+  // Level check and sync (runs when currentLevel or volume changes)
   useEffect(() => {
-    if (!currentUser) return;
-    if (currentUser.totalLbsThisMonth === 15 && currentUser.level === UserLevel.MASTER_BOX) return;
+    if (!currentUser || currentUser.role === UserRole.ADMIN) return;
     
-    if (currentLevel !== currentUser.level) {
-      setCurrentUser(prev => prev ? { ...prev, level: currentLevel } : null);
-    }
-  }, [currentLevel, currentUser?.level, currentUser?.totalLbsThisMonth]);
+    const syncLevelToDatabase = async () => {
+      let targetLevel = currentLevel;
+      
+      // Grace period check
+      const graceEnd = new Date(currentUser.gracePeriodEnd);
+      const now = new Date();
+      if (now <= graceEnd) {
+        targetLevel = UserLevel.MASTER_BOX;
+      }
+      
+      if (targetLevel !== currentUser.level) {
+        try {
+          // Update in Supabase (triggers will sync this to clientes table)
+          const { error } = await supabase
+            .from('partners')
+            .update({ level: targetLevel })
+            .eq('id', currentUser.id);
+            
+          if (error) throw error;
+          
+          let newNotifications = currentUser.notifications;
+          
+          // Add notification if downgraded
+          if (
+            (currentUser.level === UserLevel.MASTER_BOX && targetLevel === UserLevel.EMPRENDEDOR) ||
+            (currentUser.level === UserLevel.EMPRENDEDOR && targetLevel === UserLevel.EXPLORADOR) ||
+            (currentUser.level === UserLevel.MASTER_BOX && targetLevel === UserLevel.EXPLORADOR)
+          ) {
+            const downgradeNotification: NotificationType = {
+              id: `n-downgrade-${Date.now()}`,
+              title: 'Nivel Ajustado',
+              message: `Según tu volumen facturado, tu nivel ha sido ajustado a ${targetLevel}.`,
+              type: 'level_downgrade',
+              isRead: false,
+              createdAt: now.toISOString()
+            };
+            newNotifications = [downgradeNotification, ...newNotifications];
+            console.log(`[EMAIL ENVIADO] A: ${currentUser.email} - Asunto: Tu nivel ha cambiado a ${targetLevel}`);
+          }
+
+          const updatedUser = {
+            ...currentUser,
+            level: targetLevel,
+            notifications: newNotifications
+          };
+
+          setCurrentUser(updatedUser);
+          setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
+        } catch (error) {
+          console.error('Error syncing level to database:', error);
+        }
+      }
+    };
+
+    syncLevelToDatabase();
+  }, [currentLevel, currentUser?.level, currentUser?.gracePeriodEnd, currentUser?.id, currentUser?.role]);
 
   // Real-time stats calculation
   const calculatedStats = useMemo(() => {
@@ -1376,6 +1396,16 @@ export default function App() {
                         <div className={currentUser.level === UserLevel.EMPRENDEDOR ? 'text-brand-orange font-black' : ''}>Entrepreneur</div>
                         <div className={currentUser.level === UserLevel.MASTER_BOX ? 'text-brand-orange font-black' : ''}>Master Box</div>
                       </div>
+
+                      {/* Downgrade Warning Alert */}
+                      {currentUser.level === UserLevel.MASTER_BOX && currentUser.totalLbsThisMonth < 30 && (
+                        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+                          <AlertCircle className="text-amber-500 shrink-0" size={16} />
+                          <p className="text-xs text-amber-700 leading-relaxed">
+                            <strong>Atención:</strong> Para mantener tu nivel <strong>Master Box</strong> el próximo mes, necesitas procesar <span className="font-black underline">{ (30 - currentUser.totalLbsThisMonth).toFixed(1) } lbs</span> adicionales este mes.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
