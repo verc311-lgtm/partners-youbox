@@ -1558,7 +1558,10 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {packages.map(p => (
+                      {packages.map(p => {
+                        const rate = LEVEL_MAP[currentUser.level]?.rates[p.origin] ?? 0;
+                        const estimatedCost = p.weight * rate;
+                        return (
                         <div key={p.id} className="glass-card shadow-sm border-gray-100 overflow-hidden group hover:border-brand-orange/30 transition-all hover:translate-y-[-4px]">
                           <div className="p-6 space-y-5">
                             <div className="flex justify-between items-start">
@@ -1587,17 +1590,27 @@ export default function App() {
                               </div>
                             </div>
                           </div>
-                          <div className="p-5 bg-gray-50/50 border-t border-gray-100 flex justify-between items-center group-hover:bg-brand-orange/10 transition-colors">
-                            <div>
-                              <p className="text-[9px] text-gray-400 uppercase font-black mb-0.5">Total Flete</p>
-                              <p className="text-2xl font-black text-brand-gray-dark">Q{p.cost.toFixed(2)}</p>
+                          <div className="p-5 bg-gray-50/50 border-t border-gray-100 group-hover:bg-brand-orange/5 transition-colors">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="text-[9px] text-gray-400 uppercase font-black mb-0.5">Costo Estimado de Flete</p>
+                                <p className="text-2xl font-black text-brand-gray-dark">
+                                  {p.weight > 0 ? `Q${estimatedCost.toFixed(2)}` : <span className="text-gray-300 text-lg">Sin peso registrado</span>}
+                                </p>
+                                {p.weight > 0 && (
+                                  <p className="text-[9px] text-gray-400 mt-0.5">
+                                    {p.weight} lbs × Q{rate}/lb · Nivel <span className="text-brand-orange font-black">{currentUser.level}</span>
+                                  </p>
+                                )}
+                              </div>
+                              <button className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-300 group-hover:text-brand-orange group-hover:bg-brand-orange/20 transition-all">
+                                <ChevronRight size={22} />
+                              </button>
                             </div>
-                            <button className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-300 group-hover:text-brand-orange group-hover:bg-brand-orange/20 transition-all">
-                              <ChevronRight size={22} />
-                            </button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
