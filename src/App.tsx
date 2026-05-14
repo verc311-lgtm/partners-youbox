@@ -1999,14 +1999,6 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
     </div>
   );
 }
-  </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function AdminDashboard({ partners, transactions }: { partners: UserProfile[], transactions: Transaction[] }) {
   const stats = useMemo(() => {
