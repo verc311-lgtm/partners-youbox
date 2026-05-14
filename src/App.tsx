@@ -30,7 +30,10 @@ import {
   Shield,
   Download,
   ExternalLink,
-  Calculator
+  Calculator,
+  Trash2,
+  MessageSquare,
+  Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -2134,132 +2137,385 @@ function QuickPackageForm({ onRegister, currentLevel }: { onRegister: (w: number
   );
 }
 
+interface QuoteItem {
+  id: string;
+  description: string;
+  value: string;
+  weight: string;
+}
+
 function EstimatorView({ currentUser }: { currentUser: UserProfile }) {
-  const [link, setLink] = useState('');
-  const [valueUSD, setValueUSD] = useState('');
-  const [weight, setWeight] = useState('');
+  const [items, setItems] = useState<QuoteItem[]>([
+    { id: '1', description: '', value: '', weight: '' }
+  ]);
   const [origin, setOrigin] = useState<Origin>(Origin.LAREDO);
   const [exchangeRate, setExchangeRate] = useState('8.00');
+  const [includeInsurance, setIncludeInsurance] = useState(false);
+  const [localDelivery, setLocalDelivery] = useState('');
+  const [clientName, setClientName] = useState('');
 
-  const parsedValueUSD = parseFloat(valueUSD) || 0;
-  const parsedWeight = parseFloat(weight) || 0;
   const parsedExchangeRate = parseFloat(exchangeRate) || 8.0;
-
-  const valueGTQ = parsedValueUSD * parsedExchangeRate;
-  const tax = valueGTQ * 0.12;
   const shippingRate = origin === Origin.LAREDO ? 80 : 35;
-  const shippingCost = parsedWeight * shippingRate;
-  const total = valueGTQ + tax + shippingCost;
+
+  const itemCalculations = items.map(item => {
+    const valUSD = parseFloat(item.value) || 0;
+    const w = parseFloat(item.weight) || 0;
+    const valGTQ = valUSD * parsedExchangeRate;
+    const itemTax = valGTQ * 0.12;
+    const itemShipping = w * shippingRate;
+    return {
+      ...item,
+      valGTQ,
+      itemTax,
+      itemShipping,
+      itemTotal: valGTQ + itemTax + itemShipping
+    };
+  });
+
+  const subtotalValueGTQ = itemCalculations.reduce((acc, curr) => acc + curr.valGTQ, 0);
+  const totalTax = itemCalculations.reduce((acc, curr) => acc + curr.itemTax, 0);
+  const totalShipping = itemCalculations.reduce((acc, curr) => acc + curr.itemShipping, 0);
+  const totalWeight = itemCalculations.reduce((acc, curr) => acc + (parseFloat(curr.weight) || 0), 0);
+  const totalValueUSD = itemCalculations.reduce((acc, curr) => acc + (parseFloat(curr.value) || 0), 0);
+  
+  const insuranceAmount = includeInsurance ? (subtotalValueGTQ * 0.05) : 0;
+  const deliveryAmount = parseFloat(localDelivery) || 0;
+  
+  const finalTotal = subtotalValueGTQ + totalTax + totalShipping + insuranceAmount + deliveryAmount;
+
+  const addItem = () => {
+    setItems([...items, { id: Date.now().toString(), description: '', value: '', weight: '' }]);
+  };
+
+  const removeItem = (id: string) => {
+    if (items.length > 1) {
+      setItems(items.filter(i => i.id !== id));
+    }
+  };
+
+  const updateItem = (id: string, field: keyof QuoteItem, val: string) => {
+    setItems(items.map(i => i.id === id ? { ...i, [field]: val } : i));
+  };
 
   const handlePrint = () => {
     window.print();
   };
 
+  const handleWhatsApp = () => {
+    const dateStr = new Date().toLocaleDateString();
+    let message = `COTIZACION DE IMPORTACION - YOUBOX\n`;
+    message += `Fecha: ${dateStr}\n`;
+    if (clientName) message += `Cliente: ${clientName}\n`;
+    message += `-----------------------------------\n`;
+    
+    itemCalculations.forEach((item, idx) => {
+      message += `${idx + 1}. ${item.description || 'Producto'} | $${parseFloat(item.value || '0').toFixed(2)} USD | ${item.weight || '0'} lbs\n`;
+    });
+    
+    message += `-----------------------------------\n`;
+    message += `RESUMEN DE COSTOS\n`;
+    message += `Flete Internacional: Q${totalShipping.toFixed(2)}\n`;
+    message += `Impuestos (12%): Q${totalTax.toFixed(2)}\n`;
+    if (includeInsurance) message += `Seguro (5%): Q${insuranceAmount.toFixed(2)}\n`;
+    if (deliveryAmount > 0) message += `Entrega Local: Q${deliveryAmount.toFixed(2)}\n`;
+    message += `-----------------------------------\n`;
+    message += `TOTAL ESTIMADO: Q${finalTotal.toFixed(2)}\n\n`;
+    message += `* Esta cotización es un estimado basado en tarifas estándar de importación al público. Los costos finales pueden variar según el peso real y ajustes aduanales.`;
+
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
+
   return (
     <div className="space-y-8 estimator-container">
-      <header className="hide-on-print">
-        <h1 className="text-3xl font-black text-brand-gray-dark italic">Cotizador <span className="text-brand-orange">Inteligente</span></h1>
-        <p className="text-gray-400">Calcula tus costos de importación y genera un PDF.</p>
+      <header className="hide-on-print flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-brand-gray-dark italic">Cotizador <span className="text-brand-orange">Inteligente</span></h1>
+          <p className="text-gray-400">Calcula tus costos de importación y genera un presupuesto formal.</p>
+        </div>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleWhatsApp}
+            className="btn-primary bg-green-600 hover:bg-green-700 flex items-center gap-2 shadow-md border-none"
+          >
+            <MessageSquare size={18} /> Enviar WhatsApp
+          </button>
+          <button 
+            onClick={handlePrint}
+            className="btn-primary flex items-center gap-2 shadow-md"
+          >
+            <Download size={18} /> Imprimir PDF
+          </button>
+        </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-8">
         {/* Formulario */}
-        <div className="glass-card p-8 shadow-sm hide-on-print">
-          <h3 className="font-bold text-xl mb-6 text-brand-gray-dark">Datos del Producto</h3>
-          <div className="space-y-5">
-            <div className="space-y-2">
-              <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Link del Producto</label>
-              <input type="text" value={link} onChange={e => setLink(e.target.value)} placeholder="https://amazon.com/..." className="w-full input-field text-sm font-bold" />
+        <div className="xl:col-span-3 space-y-6 hide-on-print">
+          <div className="glass-card p-6 shadow-sm">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-xl text-brand-gray-dark">Detalles de la Cotización</h3>
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col items-end">
+                  <label className="text-[9px] text-gray-400 font-black uppercase tracking-widest">Tasa (Q)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    value={exchangeRate} 
+                    onChange={e => setExchangeRate(e.target.value)} 
+                    className="w-16 text-right font-bold text-sm border-b border-gray-200 focus:border-brand-orange outline-none" 
+                  />
+                </div>
+                <div className="flex flex-col items-end">
+                  <label className="text-[9px] text-gray-400 font-black uppercase tracking-widest">Origen</label>
+                  <select 
+                    value={origin} 
+                    onChange={e => setOrigin(e.target.value as Origin)} 
+                    className="font-bold text-sm border-b border-gray-200 focus:border-brand-orange outline-none bg-transparent"
+                  >
+                    <option value={Origin.LAREDO}>Laredo (USA)</option>
+                    <option value={Origin.MEXICO}>México</option>
+                  </select>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Valor (USD)</label>
-                <input type="number" min="0" step="0.01" value={valueUSD} onChange={e => setValueUSD(e.target.value)} placeholder="0.00" className="w-full input-field text-sm font-bold" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Tasa de Cambio (Q)</label>
-                <input type="number" min="1" step="0.01" value={exchangeRate} onChange={e => setExchangeRate(e.target.value)} className="w-full input-field text-sm font-bold" />
-              </div>
+
+            <div className="space-y-4 mb-6">
+               <div className="space-y-2">
+                  <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Nombre del Cliente (Opcional)</label>
+                  <input 
+                    type="text" 
+                    value={clientName} 
+                    onChange={e => setClientName(e.target.value)} 
+                    placeholder="Ej: Maria Lopez" 
+                    className="w-full input-field text-sm font-bold" 
+                  />
+               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Peso (Libras)</label>
-                <input type="number" min="0" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="0.0" className="w-full input-field text-sm font-bold" />
+
+            <div className="space-y-4">
+              <div className="hidden md:grid grid-cols-12 gap-4 px-2 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                <div className="col-span-6">Descripción / Link</div>
+                <div className="col-span-3 text-center">Valor (USD)</div>
+                <div className="col-span-2 text-center">Peso (Lb)</div>
+                <div className="col-span-1"></div>
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Origen</label>
-                <select value={origin} onChange={e => setOrigin(e.target.value as Origin)} className="w-full input-field text-sm font-bold bg-white">
-                  <option value={Origin.LAREDO}>Laredo</option>
-                  <option value={Origin.MEXICO}>México</option>
-                </select>
+              
+              {items.map((item, idx) => (
+                <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 group relative">
+                  <div className="md:col-span-6">
+                    <label className="md:hidden text-[9px] font-black text-gray-400 uppercase mb-1 block">Producto {idx + 1}</label>
+                    <input 
+                      type="text" 
+                      value={item.description} 
+                      onChange={e => updateItem(item.id, 'description', e.target.value)} 
+                      placeholder="https://amazon.com/..." 
+                      className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:border-brand-orange outline-none" 
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="md:hidden text-[9px] font-black text-gray-400 uppercase mb-1 block">Valor USD</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-gray-400 text-sm">$</span>
+                      <input 
+                        type="number" 
+                        value={item.value} 
+                        onChange={e => updateItem(item.id, 'value', e.target.value)} 
+                        placeholder="0.00" 
+                        className="w-full bg-white border border-gray-200 rounded-xl pl-6 pr-3 py-2 text-sm font-bold focus:border-brand-orange outline-none text-right" 
+                      />
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="md:hidden text-[9px] font-black text-gray-400 uppercase mb-1 block">Peso Lb</label>
+                    <input 
+                      type="number" 
+                      value={item.weight} 
+                      onChange={e => updateItem(item.id, 'weight', e.target.value)} 
+                      placeholder="0.0" 
+                      className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:border-brand-orange outline-none text-center" 
+                    />
+                  </div>
+                  <div className="md:col-span-1 flex items-center justify-center">
+                    <button 
+                      onClick={() => removeItem(item.id)}
+                      disabled={items.length === 1}
+                      className="p-2 text-gray-300 hover:text-red-500 disabled:opacity-0 transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <button 
+                onClick={addItem}
+                className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl flex items-center justify-center gap-2 text-gray-400 font-bold hover:border-brand-orange hover:text-brand-orange transition-all text-sm group"
+              >
+                <Plus size={18} className="group-hover:rotate-90 transition-transform" /> Agregar otro producto
+              </button>
+            </div>
+          </div>
+
+          <div className="glass-card p-6 shadow-sm">
+            <h3 className="font-bold text-lg text-brand-gray-dark mb-4">Servicios Adicionales</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <label className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 cursor-pointer hover:border-brand-orange/30 transition-all">
+                <div className="relative flex items-center">
+                  <input 
+                    type="checkbox" 
+                    checked={includeInsurance} 
+                    onChange={e => setIncludeInsurance(e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-brand-orange focus:ring-brand-orange accent-brand-orange" 
+                  />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-brand-gray-dark">Seguro de Protección</p>
+                  <p className="text-[10px] text-gray-400 uppercase font-black">5% sobre el valor del producto</p>
+                </div>
+                {includeInsurance && <div className="text-sm font-black text-brand-orange">Q{insuranceAmount.toFixed(2)}</div>}
+              </label>
+
+              <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-4">
+                <div className="p-2 bg-white rounded-lg border border-gray-100">
+                  <Truck size={18} className="text-gray-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-brand-gray-dark">Entrega a Domicilio</p>
+                  <p className="text-[10px] text-gray-400 uppercase font-black">Costo fijo en Quetzales</p>
+                </div>
+                <div className="relative w-24">
+                  <span className="absolute left-3 top-2.5 text-gray-400 text-xs font-bold">Q</span>
+                  <input 
+                    type="number" 
+                    value={localDelivery} 
+                    onChange={e => setLocalDelivery(e.target.value)} 
+                    placeholder="0.00" 
+                    className="w-full bg-white border border-gray-200 rounded-xl pl-7 pr-3 py-2 text-sm font-bold focus:border-brand-orange outline-none text-right" 
+                  />
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         {/* Vista de Cotización (PDF) */}
-        <div className="print-area bg-white p-8 rounded-3xl border border-gray-100 shadow-xl relative overflow-hidden">
-           <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-full -z-10"></div>
+        <div className="xl:col-span-2 print-area bg-white p-8 md:p-10 rounded-3xl border border-gray-100 shadow-xl relative overflow-hidden h-fit">
+           <div className="absolute top-0 right-0 w-48 h-48 bg-brand-orange/5 rounded-bl-full -z-10"></div>
+           
            <div className="flex justify-between items-start mb-8 border-b border-gray-100 pb-6">
               <div>
-                <div className="w-12 h-12 orange-gradient rounded-xl flex items-center justify-center font-bold text-xl text-white mb-3 shadow-md">YB</div>
-                <h2 className="text-2xl font-black text-brand-gray-dark">Cotización de Envío</h2>
-                <p className="text-xs text-gray-400 mt-1">Generado por: {currentUser.name}</p>
-                <p className="text-xs text-gray-400">Nivel de Socio: {currentUser.level}</p>
+                <div className="w-14 h-14 orange-gradient rounded-2xl flex items-center justify-center font-black text-2xl text-white mb-4 shadow-lg">YB</div>
+                <h2 className="text-2xl font-black text-brand-gray-dark uppercase tracking-tight">Cotización de Envío</h2>
+                <p className="text-xs text-gray-400 mt-1 font-medium">Asesor: {currentUser.name}</p>
+                <p className="text-[10px] text-brand-orange font-bold uppercase tracking-widest">{currentUser.level}</p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Fecha</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Fecha de Emisión</p>
                 <p className="text-sm font-bold text-brand-gray-dark">{new Date().toLocaleDateString()}</p>
+                {clientName && (
+                  <div className="mt-4">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Cliente</p>
+                    <p className="text-sm font-black text-brand-gray-dark">{clientName}</p>
+                  </div>
+                )}
               </div>
            </div>
 
-           <div className="space-y-6 mb-8">
-              {link && (
-                <div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Producto</p>
-                  <p className="text-xs text-indigo-600 truncate underline">{link}</p>
-                </div>
-              )}
+           <div className="space-y-6 mb-10">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-50">
+                      <th className="pb-3">Descripción</th>
+                      <th className="pb-3 text-center">Peso</th>
+                      <th className="pb-3 text-right">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {itemCalculations.map((item, idx) => (
+                      <tr key={item.id}>
+                        <td className="py-3 pr-4">
+                          <p className="text-xs font-bold text-brand-gray-dark truncate max-w-[150px]">
+                            {item.description || `Producto ${idx + 1}`}
+                          </p>
+                        </td>
+                        <td className="py-3 text-center">
+                          <p className="text-xs font-medium text-gray-500">{item.weight || 0} lb</p>
+                        </td>
+                        <td className="py-3 text-right">
+                          <p className="text-xs font-bold text-brand-gray-dark">${parseFloat(item.value || '0').toFixed(2)}</p>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-50 p-4 rounded-2xl">
-                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Detalles de Carga</p>
-                   <p className="text-sm font-bold text-brand-gray-dark">{parsedWeight} lbs desde {origin}</p>
-                   <p className="text-xs text-gray-500 mt-1">Tarifa: Q{shippingRate}/lb</p>
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100/50">
+                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Logística</p>
+                   <p className="text-sm font-bold text-brand-gray-dark">{totalWeight.toFixed(1)} lbs desde {origin}</p>
+                   <p className="text-[10px] text-gray-500 mt-1">Tarifa: Q{shippingRate}/lb</p>
                 </div>
-                <div className="bg-gray-50 p-4 rounded-2xl">
-                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Declarado</p>
-                   <p className="text-sm font-bold text-brand-gray-dark">${parsedValueUSD.toFixed(2)} USD</p>
-                   <p className="text-xs text-gray-500 mt-1">Q{valueGTQ.toFixed(2)} (TC: {parsedExchangeRate})</p>
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100/50">
+                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Tipo de Cambio</p>
+                   <p className="text-sm font-bold text-brand-gray-dark">Q{parsedExchangeRate.toFixed(2)}</p>
+                   <p className="text-[10px] text-gray-500 mt-1">Valor Total: ${totalValueUSD.toFixed(2)} USD</p>
                 </div>
               </div>
            </div>
 
-           <div className="space-y-3 border-t border-gray-100 pt-6 mb-8">
+           <div className="space-y-3 border-t-2 border-gray-100 pt-6 mb-10">
               <div className="flex justify-between text-sm">
                  <span className="text-gray-500 font-medium">Flete Internacional</span>
-                 <span className="font-bold text-brand-gray-dark">Q{shippingCost.toFixed(2)}</span>
+                 <span className="font-bold text-brand-gray-dark">Q{totalShipping.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                 <span className="text-gray-500 font-medium">Impuestos (12%)</span>
-                 <span className="font-bold text-brand-gray-dark">Q{tax.toFixed(2)}</span>
+                 <span className="text-gray-500 font-medium">Impuestos Aduanales (12%)</span>
+                 <span className="font-bold text-brand-gray-dark">Q{totalTax.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-xl pt-4 border-t border-dashed border-gray-200">
-                 <span className="font-black text-brand-gray-dark uppercase">Total Estimado</span>
-                 <span className="font-black text-brand-orange">Q{total.toFixed(2)}</span>
+              {includeInsurance && (
+                <div className="flex justify-between text-sm">
+                   <span className="text-gray-500 font-medium">Seguro de Protección (5%)</span>
+                   <span className="font-bold text-brand-gray-dark">Q{insuranceAmount.toFixed(2)}</span>
+                </div>
+              )}
+              {deliveryAmount > 0 && (
+                <div className="flex justify-between text-sm">
+                   <span className="text-gray-500 font-medium">Entrega Local</span>
+                   <span className="font-bold text-brand-gray-dark">Q{deliveryAmount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-2xl pt-5 border-t border-dashed border-gray-200 mt-2">
+                 <span className="font-black text-brand-gray-dark uppercase tracking-tight">Total Estimado</span>
+                 <div className="text-right">
+                    <span className="font-black text-brand-orange">Q{finalTotal.toFixed(2)}</span>
+                    <p className="text-[8px] text-gray-400 font-black uppercase tracking-[0.2em] leading-none mt-1">Quetzales Exactos</p>
+                 </div>
               </div>
            </div>
 
-           <div className="text-center text-[10px] text-gray-400 italic">
-              * Esta cotización es un estimado basado en tarifas estándar de importación al público. Los costos finales pueden variar ligeramente según el peso real y ajustes aduanales.
+           <div className="bg-gray-50 p-4 rounded-2xl mb-8">
+             <p className="text-[9px] text-gray-400 italic leading-relaxed text-center">
+                * Esta cotización es un estimado basado en tarifas estándar de importación al público. Los costos finales pueden variar ligeramente según el peso real verificado en bodega y ajustes aduanales vigentes al momento de la importación.
+             </p>
            </div>
 
-           <button 
-             onClick={handlePrint}
-             className="hide-on-print mt-8 w-full btn-primary py-4 text-sm flex items-center justify-center gap-2"
-           >
-             <Download size={16} /> Descargar PDF / Imprimir
-           </button>
+           <div className="flex flex-col gap-3 hide-on-print">
+             <button 
+               onClick={handleWhatsApp}
+               className="w-full py-4 bg-green-600 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg hover:bg-green-700 transition-all"
+             >
+               <MessageSquare size={18} /> Enviar a WhatsApp
+             </button>
+             <button 
+               onClick={handlePrint}
+               className="w-full btn-primary py-4 text-sm flex items-center justify-center gap-2 shadow-lg"
+             >
+               <Download size={18} /> Descargar PDF / Imprimir
+             </button>
+           </div>
         </div>
       </div>
     </div>
