@@ -287,6 +287,7 @@ export default function App() {
           totalLbsThisMonth: p.total_lbs_this_month,
           referralLbsThisMonth: p.referral_lbs_this_month,
           registeredAt: p.registered_at,
+          depositSlipUrl: p.deposit_slip_url,
           notifications: []
         }));
         setPartners(mappedPartners);
@@ -329,18 +330,13 @@ export default function App() {
   };
 
   // Handle Registration
-  const handleRegister = async (name: string, email: string, phone: string, sponsorCode: string) => {
+  const handleRegister = async (name: string, email: string, phone: string, sponsorCode: string, depositProof?: File) => {
     try {
       setIsLoading(true);
       
-      // Ensure phone prefix +502
       let formattedPhone = phone.trim();
       if (!formattedPhone.startsWith('+')) {
         formattedPhone = `+502${formattedPhone}`;
-      } else if (!formattedPhone.startsWith('+502')) {
-        // If it starts with + but not +502, we keep it as is or handle it. 
-        // User specifically asked to create with +502 prefix.
-        // Assuming if they type 55551234 -> +50255551234
       }
 
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -356,8 +352,25 @@ export default function App() {
       if (authError) throw authError;
 
       if (authData.user) {
-        // Generate partner code (simplified for Phase 2)
-        // Generate sequential partner code
+        let depositSlipUrl = '';
+        
+        if (depositProof) {
+          const fileExt = depositProof.name.split('.').pop();
+          const fileName = `${authData.user.id}-${Date.now()}.${fileExt}`;
+          const { error: uploadError, data: uploadData } = await supabase.storage
+            .from('boletas')
+            .upload(fileName, depositProof);
+
+          if (uploadError) {
+            console.error('Error uploading slip:', uploadError);
+          } else if (uploadData) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('boletas')
+              .getPublicUrl(fileName);
+            depositSlipUrl = publicUrl;
+          }
+        }
+
         const { count, error: countError } = await supabase
           .from('partners')
           .select('*', { count: 'exact', head: true });
@@ -384,6 +397,7 @@ export default function App() {
               referral_code: referralCode,
               status: 'pending',
               is_active: false,
+              deposit_slip_url: depositSlipUrl,
               grace_period_end: graceEnd.toISOString(),
               accepted_terms: true
             }
@@ -1793,17 +1807,18 @@ export default function App() {
   );
 }
 
-
 function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], onApprove: (id: string) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
-  
+  const [selectedPartner, setSelectedPartner] = useState<UserProfile | null>(null);
+
   const filtered = partners.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     p.partnerCode.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 relative">
+      {/* Search Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-black text-brand-gray-dark italic">Gestión de <span className="text-brand-orange">Socios</span></h1>
@@ -1821,6 +1836,7 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
         </div>
       </div>
 
+      {/* Partners Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filtered.map(p => {
           const referralCount = partners.filter(r => r.sponsorId === p.id).length;
@@ -1888,11 +1904,124 @@ function AdminPartnersView({ partners, onApprove }: { partners: UserProfile[], o
               </div>
               
               <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-2">
-                <button className="flex-1 py-2 rounded-lg bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-brand-gray-dark hover:bg-gray-100 transition-colors">Ver Detalles</button>
+                <button 
+                  onClick={() => setSelectedPartner(p)}
+                  className="flex-1 py-2 rounded-lg bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-brand-gray-dark hover:bg-gray-100 transition-colors"
+                >
+                  Ver Detalles
+                </button>
                 <button className="px-3 py-2 rounded-lg bg-brand-orange/10 text-brand-orange hover:bg-brand-orange/20 transition-all">
                   <ArrowUpRight size={14} />
                 </button>
               </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Partner Details Modal */}
+      <AnimatePresence>
+        {selectedPartner && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedPartner(null)}
+              className="absolute inset-0 bg-brand-gray-dark/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 border-b border-gray-100 flex justify-between items-start">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-3xl bg-brand-orange/10 flex items-center justify-center text-brand-orange text-2xl font-black">
+                    {selectedPartner.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black text-brand-gray-dark">{selectedPartner.name}</h2>
+                    <p className="text-sm text-gray-400">{selectedPartner.email}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedPartner(null)}
+                  className="p-2 hover:bg-gray-50 rounded-full transition-colors"
+                >
+                  <X size={24} className="text-gray-300" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                {/* Contact Info */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">WhatsApp / Teléfono</p>
+                    <p className="text-lg font-bold text-brand-gray-dark">{selectedPartner.phone}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Código de Socio</p>
+                    <p className="text-lg font-bold font-mono text-brand-orange tracking-widest">{selectedPartner.partnerCode}</p>
+                  </div>
+                </div>
+
+                {/* Deposit Slip Section */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Boleta de Depósito (Activación Q500)</p>
+                    {selectedPartner.depositSlipUrl && (
+                      <a 
+                        href={selectedPartner.depositSlipUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-brand-orange font-black uppercase hover:underline flex items-center gap-1"
+                      >
+                        Abrir Original <ArrowUpRight size={10} />
+                      </a>
+                    )}
+                  </div>
+                  
+                  {selectedPartner.depositSlipUrl ? (
+                    <div className="aspect-video bg-gray-50 rounded-3xl border border-gray-100 overflow-hidden relative group">
+                      <img 
+                        src={selectedPartner.depositSlipUrl} 
+                        alt="Boleta de Depósito"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-12 bg-gray-50 rounded-3xl border border-dashed border-gray-200 flex flex-col items-center justify-center text-center">
+                      <FileX size={48} className="text-gray-200 mb-4" />
+                      <p className="text-sm font-bold text-gray-400">No se adjuntó boleta</p>
+                      <p className="text-[10px] text-gray-300">Este socio fue registrado manualmente o antes de la actualización.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {selectedPartner.status === UserStatus.PENDING && (
+                <div className="p-8 bg-gray-50 border-t border-gray-100">
+                  <button 
+                    onClick={() => {
+                      onApprove(selectedPartner.id);
+                      setSelectedPartner(null);
+                    }}
+                    className="w-full py-4 bg-brand-orange text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-orange/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    Aprobar y Activar Socio
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+  </div>
             </div>
           );
         })}
@@ -2730,7 +2859,7 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
   );
 }
 
-function RegisterForm({ onRegister }: { onRegister: (name: string, email: string, phone: string, sponsorCode: string) => void }) {
+function RegisterForm({ onRegister }: { onRegister: (name: string, email: string, phone: string, sponsorCode: string, depositProof: File) => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -2754,7 +2883,7 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
       setError('Debes aceptar los Términos y Condiciones para continuar.');
       return;
     }
-    await onRegister(name, email, phone, sponsorCode);
+    await onRegister(name, email, phone, sponsorCode, depositProof);
   };
 
   return (

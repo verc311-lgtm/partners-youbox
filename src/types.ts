@@ -100,6 +100,7 @@ export interface UserProfile {
   partnerCode: string; // e.g. YBP001
   referralCode: string; // e.g. YBP001-REF
   registeredAt: string;
+  depositSlipUrl?: string;
   gracePeriodEnd: string; // 2 months after registration — Master Box grace
   acceptedTerms: boolean;
   password?: string; // Hashed password in real life, plaintext for demo
