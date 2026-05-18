@@ -22,6 +22,8 @@ import {
   Truck,
   CreditCard,
   FileText,
+  Search,
+  Filter,
   X,
   PieChart,
   Bell,
@@ -83,6 +85,10 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
   const [emailConflict, setEmailConflict] = useState<{ partnerId: string; currentEmail: string } | null>(null);
+  const [ledgerTransactions, setLedgerTransactions] = useState<any[]>([]);
+  const [selectedPartnerFilter, setSelectedPartnerFilter] = useState<string>('all');
+  const [reportsSearchQuery, setReportsSearchQuery] = useState('');
+  const [reportsTipoFilter, setReportsTipoFilter] = useState('all');
 
   // Handle Auth State Changes
   useEffect(() => {
@@ -105,6 +111,13 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Fetch partner transactions when activeTab changes to reports
+  useEffect(() => {
+    if (currentUser && activeTab === 'reports') {
+      fetchPartnerTransactions(selectedPartnerFilter);
+    }
+  }, [activeTab, currentUser, selectedPartnerFilter]);
 
   // Real-time subscriptions
   useEffect(() => {
@@ -384,6 +397,27 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
+    }
+  };
+
+  const fetchPartnerTransactions = async (partnerId?: string) => {
+    try {
+      let query = supabase
+        .from('partner_transactions')
+        .select('id, partner_id, tipo, amount, reference, description, created_at, partners(name, partner_code)')
+        .order('created_at', { ascending: false });
+
+      if (currentUser?.role === UserRole.PARTNER) {
+        query = query.eq('partner_id', currentUser.id);
+      } else if (partnerId && partnerId !== 'all') {
+        query = query.eq('partner_id', partnerId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setLedgerTransactions(data || []);
+    } catch (error) {
+      console.error('Error fetching partner transactions:', error);
     }
   };
 
@@ -1840,139 +1874,410 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === 'reports' && (
-              <motion.div 
-                key="reports"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-8"
-              >
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h1 className="text-3xl font-black text-brand-gray-dark">Reporte de Operaciones</h1>
-                    <p className="text-gray-400 text-sm">Visualización detallada de tu actividad logística.</p>
-                  </div>
-                  <button className="p-3 bg-white border border-gray-200 rounded-xl text-gray-400 hover:text-brand-gray-dark transition-all shadow-sm">
-                    <FileText size={20} />
-                  </button>
-                </div>
+            {activeTab === 'reports' && (() => {
+              const reportsStats = useMemo(() => {
+                const deposits = ledgerTransactions
+                  .filter(t => t.tipo === 'deposit' || t.tipo === 'referral_commission')
+                  .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+                
+                const payments = ledgerTransactions
+                  .filter(t => t.tipo === 'payment' || t.tipo === 'withdrawal' || t.tipo === 'transfer_to_main')
+                  .reduce((sum, t) => sum + Math.abs(Number(t.amount || 0)), 0);
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="glass-card p-8 space-y-6 shadow-sm border-gray-100">
-                    <h3 className="font-bold text-lg text-brand-gray-dark">Flujo de Libras (Semanal)</h3>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={volumeData}>
-                          <defs>
-                            <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#FF6B00" stopOpacity={0.2}/>
-                              <stop offset="95%" stopColor="#FF6B00" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#00000005" vertical={false} />
-                          <XAxis 
-                            dataKey="name" 
-                            stroke="#D1D5DB" 
-                            fontSize={10} 
-                            tickLine={false} 
-                            axisLine={false} 
-                          />
-                          <YAxis 
-                            stroke="#D1D5DB" 
-                            fontSize={10} 
-                            tickLine={false} 
-                            axisLine={false} 
-                            tickFormatter={(value) => `${value}lb`}
-                          />
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
-                            itemStyle={{ color: '#FF6B00', fontSize: '12px', fontWeight: 'bold' }}
-                          />
-                          <Area 
-                            type="monotone" 
-                            dataKey="volume" 
-                            stroke="#FF6B00" 
-                            strokeWidth={3} 
-                            fillOpacity={1} 
-                            fill="url(#colorVolume)" 
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                let currentWalletBalance = 0;
+                if (currentUser?.role === UserRole.ADMIN) {
+                  if (selectedPartnerFilter === 'all') {
+                    currentWalletBalance = partners.reduce((sum, p) => sum + Number(p.walletBalance || 0), 0);
+                  } else {
+                    const targetPartner = partners.find(p => p.id === selectedPartnerFilter);
+                    currentWalletBalance = targetPartner ? Number(targetPartner.walletBalance || 0) : 0;
+                  }
+                } else {
+                  currentWalletBalance = currentUser?.walletBalance || 0;
+                }
+
+                return {
+                  deposits,
+                  payments,
+                  balance: currentWalletBalance
+                };
+              }, [ledgerTransactions, partners, currentUser, selectedPartnerFilter]);
+
+              const filteredLedgerTransactions = useMemo(() => {
+                return ledgerTransactions.filter(t => {
+                  const matchesSearch = 
+                    (t.reference?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
+                    (t.description?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
+                    (t.partners?.name?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
+                    (t.partners?.partner_code?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase());
+                  
+                  const matchesTipo = 
+                    reportsTipoFilter === 'all' || 
+                    (reportsTipoFilter === 'deposits' && (t.tipo === 'deposit' || t.tipo === 'referral_commission')) ||
+                    (reportsTipoFilter === 'payments' && t.tipo === 'payment') ||
+                    (reportsTipoFilter === 'withdrawals' && t.tipo === 'withdrawal') ||
+                    (reportsTipoFilter === 'transfers' && t.tipo === 'transfer_to_main');
+
+                  return matchesSearch && matchesTipo;
+                });
+              }, [ledgerTransactions, reportsSearchQuery, reportsTipoFilter]);
+
+              const chartData = useMemo(() => {
+                const sorted = [...ledgerTransactions].reverse();
+                let cumulative = 0;
+                const dailyData: Record<string, { date: string, deposits: number, payments: number, balance: number }> = {};
+                
+                sorted.forEach(t => {
+                  const dateStr = new Date(t.created_at).toLocaleDateString('es-GT', { month: 'short', day: 'numeric' });
+                  const isPositive = t.tipo === 'deposit' || t.tipo === 'referral_commission';
+                  const amt = Number(t.amount || 0);
+                  
+                  if (!dailyData[dateStr]) {
+                    dailyData[dateStr] = { date: dateStr, deposits: 0, payments: 0, balance: 0 };
+                  }
+                  
+                  if (isPositive) {
+                    dailyData[dateStr].deposits += amt;
+                    cumulative += amt;
+                  } else {
+                    dailyData[dateStr].payments += Math.abs(amt);
+                    cumulative -= Math.abs(amt);
+                  }
+                  dailyData[dateStr].balance = cumulative;
+                });
+                
+                return Object.values(dailyData).slice(-10);
+              }, [ledgerTransactions]);
+
+              const getTipoLabel = (tipo: string) => {
+                switch (tipo) {
+                  case 'deposit': return 'Carga / Depósito';
+                  case 'payment': return 'Pago de Envío';
+                  case 'withdrawal': return 'Retiro de Capital';
+                  case 'referral_commission': return 'Comisión Referido';
+                  case 'transfer_to_main': return 'Traspaso Billetera';
+                  default: return tipo;
+                }
+              };
+
+              const getTipoBadgeClass = (tipo: string) => {
+                switch (tipo) {
+                  case 'deposit': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                  case 'payment': return 'bg-orange-50 text-orange-700 border-orange-200';
+                  case 'withdrawal': return 'bg-red-50 text-red-700 border-red-200';
+                  case 'referral_commission': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                  case 'transfer_to_main': return 'bg-blue-50 text-blue-700 border-blue-200';
+                  default: return 'bg-slate-50 text-slate-700 border-slate-200';
+                }
+              };
+
+              const handleExportCSV = () => {
+                const headers = ['Fecha', 'Socio', 'Código', 'Tipo', 'Referencia', 'Descripción', 'Monto (GTQ)'];
+                const rows = filteredLedgerTransactions.map(t => [
+                  new Date(t.created_at).toLocaleDateString(),
+                  t.partners?.name || currentUser?.name,
+                  t.partners?.partner_code || currentUser?.partnerCode,
+                  getTipoLabel(t.tipo),
+                  t.reference || '',
+                  t.description,
+                  t.amount
+                ]);
+                
+                const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(','))].join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.setAttribute("href", url);
+                link.setAttribute("download", `Reporte_Financiero_${new Date().toISOString().slice(0,10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              };
+
+              return (
+                <motion.div 
+                  key="reports"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="space-y-8"
+                >
+                  <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                    <div>
+                      <h1 className="text-3xl font-black text-brand-gray-dark tracking-tight">Control de Capital y Reportes</h1>
+                      <p className="text-gray-400 text-sm">Visualización detallada de depósitos, consumos y balances financieros.</p>
                     </div>
+                    <button 
+                      onClick={handleExportCSV}
+                      disabled={filteredLedgerTransactions.length === 0}
+                      className="flex items-center gap-2 p-3 bg-white border border-gray-200 rounded-xl text-gray-600 hover:text-brand-orange hover:border-brand-orange transition-all shadow-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed self-start md:self-auto"
+                    >
+                      <Download size={18} /> Exportar CSV
+                    </button>
                   </div>
 
-                  <div className="glass-card p-8 flex flex-col shadow-sm border-gray-100">
-                    <h3 className="font-bold text-lg text-brand-gray-dark mb-8">Distribución por Origen</h3>
-                    <div className="flex-1 flex items-center justify-center relative">
-                      <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
-                        <p className="text-3xl font-black text-brand-gray-dark tracking-tighter">100%</p>
-                        <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Global</p>
+                  {/* Admin Partner Selector */}
+                  {currentUser?.role === UserRole.ADMIN && (
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-white/40 p-5 rounded-2xl border border-gray-100 backdrop-blur-md shadow-sm">
+                      <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
+                        <Users size={16} className="text-brand-orange" />
+                        <span>Filtrar por Socio Comercial:</span>
                       </div>
-                      <ResponsiveContainer width="100%" height={240}>
-                        <RePieChart>
-                          <Pie
-                            data={sourceData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={70}
-                            outerRadius={90}
-                            paddingAngle={8}
-                            dataKey="value"
-                            stroke="none"
-                          >
-                            {sourceData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip 
-                            contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
-                          />
-                        </RePieChart>
-                      </ResponsiveContainer>
+                      <select
+                        value={selectedPartnerFilter}
+                        onChange={(e) => setSelectedPartnerFilter(e.target.value)}
+                        className="rounded-xl border-gray-200 text-sm font-semibold focus:border-brand-orange focus:ring-brand-orange py-2 px-3 bg-white shadow-sm outline-none transition-all flex-1 sm:max-w-xs"
+                      >
+                        <option value="all">👥 Todos los Socios</option>
+                        {partners.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.partnerCode})
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                      {sourceData.map((item) => (
-                        <div key={item.name} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-100 rounded-xl">
-                          <div className={cn("w-2 h-2 rounded-full", item.name === 'Laredo' ? 'bg-brand-orange' : 'bg-[#FF8A00]')} />
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1">{item.name}</p>
-                            <p className="text-sm font-black text-brand-gray-dark">{item.value}%</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                  )}
 
-                <div className="glass-card p-8 shadow-sm border-gray-100">
-                  <h3 className="font-bold text-lg text-brand-gray-dark mb-6">Eficiencia de Envios</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div className="space-y-2">
-                       <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Tiempo Promedio</p>
-                       <p className="text-2xl font-black text-brand-gray-dark">4.2 <span className="text-sm font-medium opacity-40">días</span></p>
-                       <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                         <div className="h-full orange-gradient w-[85%]" />
-                       </div>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* Deposits Card */}
+                    <div className="glass-card p-6 bg-gradient-to-br from-emerald-50/50 to-teal-50/20 border-emerald-100 flex items-center justify-between hover:scale-[1.01] transition-transform shadow-sm">
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase font-black tracking-widest text-emerald-600/80">Aportaciones (Depósitos)</p>
+                        <p className="text-3xl font-black text-emerald-800 tracking-tight">Q{reportsStats.deposits.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-600 border border-emerald-200/50">
+                        <ArrowDownLeft size={24} />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                       <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Ahorro Estimado</p>
-                       <p className="text-2xl font-black text-green-600">Q1,240 <span className="text-sm font-medium opacity-40">/mes</span></p>
-                       <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                         <div className="h-full bg-green-500 w-[70%]" />
-                       </div>
+
+                    {/* Payments Card */}
+                    <div className="glass-card p-6 bg-gradient-to-br from-rose-50/50 to-orange-50/20 border-rose-100 flex items-center justify-between hover:scale-[1.01] transition-transform shadow-sm">
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase font-black tracking-widest text-rose-600/80">Consumos (Utilizado)</p>
+                        <p className="text-3xl font-black text-rose-800 tracking-tight">Q{reportsStats.payments.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="p-3 bg-rose-500/10 rounded-2xl text-rose-600 border border-rose-200/50">
+                        <ArrowUpRight size={24} />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                       <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Satisfacción Regional</p>
-                       <p className="text-2xl font-black text-blue-600">98.4%</p>
-                       <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                         <div className="h-full bg-blue-500 w-[98%]" />
-                       </div>
+
+                    {/* Balance Card */}
+                    <div className="glass-card p-6 bg-gradient-to-br from-brand-orange/5 to-[#FF8A00]/5 border-brand-orange/10 flex items-center justify-between hover:scale-[1.01] transition-transform shadow-sm">
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase font-black tracking-widest text-brand-orange">Saldo en Billeteras</p>
+                        <p className="text-3xl font-black text-brand-gray-dark tracking-tight">Q{reportsStats.balance.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="p-3 bg-brand-orange/10 rounded-2xl text-brand-orange border border-brand-orange/20">
+                        <Wallet size={24} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
+
+                  {/* Chart and Details */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Chart Container */}
+                    <div className="glass-card p-6 lg:col-span-2 shadow-sm border-gray-100 space-y-4">
+                      <div>
+                        <h3 className="font-bold text-lg text-brand-gray-dark">Tendencia de Saldos</h3>
+                        <p className="text-gray-400 text-xs">Historial del capital neto circulante de los últimos días de actividad.</p>
+                      </div>
+                      <div className="h-64 w-full">
+                        {chartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData}>
+                              <defs>
+                                <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#FF6B00" stopOpacity={0.2}/>
+                                  <stop offset="95%" stopColor="#FF6B00" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#00000005" vertical={false} />
+                              <XAxis 
+                                dataKey="date" 
+                                stroke="#9CA3AF" 
+                                fontSize={10} 
+                                tickLine={false} 
+                                axisLine={false} 
+                              />
+                              <YAxis 
+                                stroke="#9CA3AF" 
+                                fontSize={10} 
+                                tickLine={false} 
+                                axisLine={false} 
+                                tickFormatter={(value) => `Q${value}`}
+                              />
+                              <Tooltip 
+                                formatter={(value: any) => [`Q${Number(value).toFixed(2)}`, 'Saldo Neto']}
+                                contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                              />
+                              <Area 
+                                type="monotone" 
+                                dataKey="balance" 
+                                stroke="#FF6B00" 
+                                strokeWidth={3} 
+                                fillOpacity={1} 
+                                fill="url(#colorBalance)" 
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full w-full flex flex-col items-center justify-center text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 p-4">
+                            <TrendingUp size={36} className="text-gray-300 mb-2" />
+                            <p className="text-sm font-semibold">Sin datos suficientes para graficar</p>
+                            <p className="text-[10px] text-gray-400">Las transacciones completadas aparecerán aquí.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick Financial Overview */}
+                    <div className="glass-card p-6 flex flex-col shadow-sm border-gray-100 space-y-6">
+                      <div>
+                        <h3 className="font-bold text-lg text-brand-gray-dark">Resumen Ejecutivo</h3>
+                        <p className="text-gray-400 text-xs">Estadísticas clave de capital comercial.</p>
+                      </div>
+                      
+                      <div className="space-y-4 flex-1 flex flex-col justify-center">
+                        <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between hover:bg-gray-100/50 transition-colors">
+                          <div>
+                            <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1.5">Tasa de Consumo</p>
+                            <p className="text-sm font-bold text-brand-gray-dark">Consumo vs Depósitos</p>
+                          </div>
+                          <p className="text-lg font-black text-brand-orange">
+                            {reportsStats.deposits > 0 
+                              ? `${Math.min(100, Math.round((reportsStats.payments / reportsStats.deposits) * 100))}%` 
+                              : '0%'}
+                          </p>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between hover:bg-gray-100/50 transition-colors">
+                          <div>
+                            <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1.5">Transacciones Totales</p>
+                            <p className="text-sm font-bold text-brand-gray-dark">Operaciones Registradas</p>
+                          </div>
+                          <p className="text-lg font-black text-brand-gray-dark">{ledgerTransactions.length}</p>
+                        </div>
+
+                        <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between hover:bg-gray-100/50 transition-colors">
+                          <div>
+                            <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1.5">Promedio Operación</p>
+                            <p className="text-sm font-bold text-brand-gray-dark">Monto Promedio</p>
+                          </div>
+                          <p className="text-lg font-black text-brand-gray-dark">
+                            Q{ledgerTransactions.length > 0 
+                              ? Math.round(ledgerTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0) / ledgerTransactions.length).toLocaleString('es-GT') 
+                              : '0'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ledger Table Section */}
+                  <div className="glass-card overflow-hidden shadow-sm border-gray-100 flex flex-col">
+                    <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
+                      <div>
+                        <h3 className="font-bold text-brand-gray-dark flex items-center gap-2">
+                          <History size={18} className="text-brand-orange" />
+                          Libro Mayor de Operaciones
+                        </h3>
+                        <p className="text-gray-400 text-xs mt-0.5">Listado de transacciones financieras registradas en la plataforma.</p>
+                      </div>
+
+                      {/* Filters */}
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                        {/* Search Bar */}
+                        <div className="relative">
+                          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                          <input
+                            type="text"
+                            placeholder="Buscar referencia o descripción..."
+                            value={reportsSearchQuery}
+                            onChange={(e) => setReportsSearchQuery(e.target.value)}
+                            className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange w-full sm:w-60 transition-all font-medium"
+                          />
+                        </div>
+
+                        {/* Type Select */}
+                        <div className="relative">
+                          <select
+                            value={reportsTipoFilter}
+                            onChange={(e) => setReportsTipoFilter(e.target.value)}
+                            className="appearance-none pl-4 pr-10 py-2 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange font-semibold shadow-sm cursor-pointer"
+                          >
+                            <option value="all">📁 Todos los Tipos</option>
+                            <option value="deposits">🟢 Aportes / Depósitos</option>
+                            <option value="payments">🟠 Pagos Facturas</option>
+                            <option value="withdrawals">🔴 Retiros</option>
+                            <option value="transfers">🔵 Traspasos</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Table element */}
+                    <div className="overflow-x-auto">
+                      {filteredLedgerTransactions.length > 0 ? (
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50/50 text-[10px] uppercase font-black tracking-widest text-gray-400 border-b border-gray-100">
+                              <th className="px-6 py-4">Fecha</th>
+                              {currentUser?.role === UserRole.ADMIN && <th className="px-6 py-4">Socio</th>}
+                              <th className="px-6 py-4">Operación</th>
+                              <th className="px-6 py-4">Referencia</th>
+                              <th className="px-6 py-4">Descripción</th>
+                              <th className="px-6 py-4 text-right">Monto (GTQ)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100/50 text-sm">
+                            {filteredLedgerTransactions.map((t) => {
+                              const isPositive = t.tipo === 'deposit' || t.tipo === 'referral_commission';
+                              return (
+                                <tr key={t.id} className="hover:bg-gray-50/30 transition-colors">
+                                  <td className="px-6 py-4.5 whitespace-nowrap text-gray-500 font-medium">
+                                    {new Date(t.created_at).toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    <span className="text-[10px] block text-gray-400 font-mono mt-0.5">
+                                      {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  </td>
+                                  {currentUser?.role === UserRole.ADMIN && (
+                                    <td className="px-6 py-4.5 whitespace-nowrap">
+                                      <span className="font-bold text-slate-700">{t.partners?.name || 'Socio'}</span>
+                                      <span className="text-[10px] block text-gray-400 font-mono mt-0.5">{t.partners?.partner_code}</span>
+                                    </td>
+                                  )}
+                                  <td className="px-6 py-4.5 whitespace-nowrap">
+                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black border uppercase tracking-wider shadow-sm ${getTipoBadgeClass(t.tipo)}`}>
+                                      {getTipoLabel(t.tipo)}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4.5 whitespace-nowrap font-mono text-xs font-bold text-slate-600">
+                                    {t.reference || 'N/A'}
+                                  </td>
+                                  <td className="px-6 py-4.5 text-gray-600 font-medium max-w-xs truncate" title={t.description}>
+                                    {t.description}
+                                  </td>
+                                  <td className={`px-6 py-4.5 whitespace-nowrap text-right font-black text-base ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                    {isPositive ? '+' : '-'} Q{Math.abs(t.amount).toFixed(2)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="p-12 text-center text-gray-400 flex flex-col items-center justify-center">
+                          <History size={48} className="text-gray-300 mb-3" />
+                          <p className="text-base font-bold text-slate-700">Sin movimientos registrados</p>
+                          <p className="text-xs text-gray-400 max-w-sm mt-1">No se encontraron registros de transacciones que coincidan con los filtros seleccionados.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })()}
 
             {/* Estimator Tab */}
             {activeTab === 'estimator' && (
