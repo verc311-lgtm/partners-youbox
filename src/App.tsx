@@ -3587,12 +3587,6 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
     }
   };
 
-  const handleDemoLogin = async (demoEmail: string, demoPassword: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPassword);
-    await onLogin(demoEmail, demoPassword);
-  }
-
   return (
     <motion.form 
       initial={{ opacity: 0, x: -20 }}
@@ -3637,14 +3631,6 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
       <button type="submit" className="btn-primary w-full py-4 text-base font-black shadow-lg">
         Ingresar
       </button>
-
-      <div className="text-center">
-        <p className="text-[10px] text-gray-400 leading-relaxed">
-          <strong>Demo rápido:</strong> haz clic en <br/>
-          <button type="button" onClick={() => handleDemoLogin('juan@example.com', '+502 5555-1234')} className="font-mono text-brand-orange hover:underline mt-1">juan@example.com</button> o <br/>
-          <button type="button" onClick={() => handleDemoLogin('admin@youboxgt.com', 'Youbox2026')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
-        </p>
-      </div>
     </motion.form>
   );
 }
