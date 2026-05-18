@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo, useEffect, ReactNode, FormEvent } from 'react';
+import React, { useState, useMemo, useEffect, ReactNode, FormEvent } from 'react';
 import { 
   BarChart3, 
   Wallet, 
@@ -70,7 +70,26 @@ import { EmailConflictModal } from './EmailConflictModal';
 
 // Mock data removed for Phase 2 real integration
 
-// Mock Data
+// Premium Error Boundary to gracefully recover from Recharts or other runtime chart crashes
+class ErrorBoundary extends React.Component<{ children: React.ReactNode; fallback: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught a reports render exception:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
 // Real integration with Supabase - start from 0
 
 
@@ -1875,78 +1894,120 @@ export default function App() {
             )}
 
             {activeTab === 'reports' && (() => {
-              const reportsStats = useMemo(() => {
-                const deposits = ledgerTransactions
-                  .filter(t => t.tipo === 'deposit' || t.tipo === 'referral_commission')
-                  .reduce((sum, t) => sum + Number(t.amount || 0), 0);
-                
-                const payments = ledgerTransactions
-                  .filter(t => t.tipo === 'payment' || t.tipo === 'withdrawal' || t.tipo === 'transfer_to_main')
-                  .reduce((sum, t) => sum + Math.abs(Number(t.amount || 0)), 0);
+              // Helper to safely format dates and times to prevent RangeError invalid time value crashes
+              const safeFormatDate = (dateStr: any) => {
+                if (!dateStr) return 'N/A';
+                const d = new Date(dateStr);
+                return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' });
+              };
 
-                let currentWalletBalance = 0;
-                if (currentUser?.role === UserRole.ADMIN) {
-                  if (selectedPartnerFilter === 'all') {
-                    currentWalletBalance = partners.reduce((sum, p) => sum + Number(p.walletBalance || 0), 0);
-                  } else {
-                    const targetPartner = partners.find(p => p.id === selectedPartnerFilter);
-                    currentWalletBalance = targetPartner ? Number(targetPartner.walletBalance || 0) : 0;
-                  }
-                } else {
-                  currentWalletBalance = currentUser?.walletBalance || 0;
+              const safeFormatTime = (dateStr: any) => {
+                if (!dateStr) return '';
+                const d = new Date(dateStr);
+                return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              };
+
+              // Helper to robustly handle both array or object join responses from Supabase
+              const getPartnerInfo = (t: any) => {
+                if (!t.partners) return { name: '', partner_code: '' };
+                if (Array.isArray(t.partners)) {
+                  return t.partners[0] || { name: '', partner_code: '' };
                 }
+                return t.partners;
+              };
 
-                return {
-                  deposits,
-                  payments,
-                  balance: currentWalletBalance
-                };
+              const reportsStats = useMemo(() => {
+                try {
+                  const deposits = ledgerTransactions
+                    .filter(t => t.tipo === 'deposit' || t.tipo === 'referral_commission')
+                    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+                  
+                  const payments = ledgerTransactions
+                    .filter(t => t.tipo === 'payment' || t.tipo === 'withdrawal' || t.tipo === 'transfer_to_main')
+                    .reduce((sum, t) => sum + Math.abs(Number(t.amount || 0)), 0);
+
+                  let currentWalletBalance = 0;
+                  if (currentUser?.role === UserRole.ADMIN) {
+                    if (selectedPartnerFilter === 'all') {
+                      currentWalletBalance = partners.reduce((sum, p) => sum + Number(p.walletBalance || 0), 0);
+                    } else {
+                      const targetPartner = partners.find(p => p.id === selectedPartnerFilter);
+                      currentWalletBalance = targetPartner ? Number(targetPartner.walletBalance || 0) : 0;
+                    }
+                  } else {
+                    currentWalletBalance = currentUser?.walletBalance || 0;
+                  }
+
+                  return {
+                    deposits,
+                    payments,
+                    balance: currentWalletBalance
+                  };
+                } catch (err) {
+                  console.error("Error in reportsStats calculation:", err);
+                  return { deposits: 0, payments: 0, balance: 0 };
+                }
               }, [ledgerTransactions, partners, currentUser, selectedPartnerFilter]);
 
               const filteredLedgerTransactions = useMemo(() => {
-                return ledgerTransactions.filter(t => {
-                  const matchesSearch = 
-                    (t.reference?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
-                    (t.description?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
-                    (t.partners?.name?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
-                    (t.partners?.partner_code?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase());
-                  
-                  const matchesTipo = 
-                    reportsTipoFilter === 'all' || 
-                    (reportsTipoFilter === 'deposits' && (t.tipo === 'deposit' || t.tipo === 'referral_commission')) ||
-                    (reportsTipoFilter === 'payments' && t.tipo === 'payment') ||
-                    (reportsTipoFilter === 'withdrawals' && t.tipo === 'withdrawal') ||
-                    (reportsTipoFilter === 'transfers' && t.tipo === 'transfer_to_main');
+                try {
+                  return ledgerTransactions.filter(t => {
+                    const partner = getPartnerInfo(t);
+                    const matchesSearch = 
+                      (t.reference?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
+                      (t.description?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
+                      (partner?.name?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
+                      (partner?.partner_code?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase());
+                    
+                    const matchesTipo = 
+                      reportsTipoFilter === 'all' || 
+                      (reportsTipoFilter === 'deposits' && (t.tipo === 'deposit' || t.tipo === 'referral_commission')) ||
+                      (reportsTipoFilter === 'payments' && t.tipo === 'payment') ||
+                      (reportsTipoFilter === 'withdrawals' && t.tipo === 'withdrawal') ||
+                      (reportsTipoFilter === 'transfers' && t.tipo === 'transfer_to_main');
 
-                  return matchesSearch && matchesTipo;
-                });
+                    return matchesSearch && matchesTipo;
+                  });
+                } catch (err) {
+                  console.error("Error filtering transactions:", err);
+                  return [];
+                }
               }, [ledgerTransactions, reportsSearchQuery, reportsTipoFilter]);
 
               const chartData = useMemo(() => {
-                const sorted = [...ledgerTransactions].reverse();
-                let cumulative = 0;
-                const dailyData: Record<string, { date: string, deposits: number, payments: number, balance: number }> = {};
-                
-                sorted.forEach(t => {
-                  const dateStr = new Date(t.created_at).toLocaleDateString('es-GT', { month: 'short', day: 'numeric' });
-                  const isPositive = t.tipo === 'deposit' || t.tipo === 'referral_commission';
-                  const amt = Number(t.amount || 0);
+                try {
+                  const sorted = [...ledgerTransactions].reverse();
+                  let cumulative = 0;
+                  const dailyData: Record<string, { date: string, deposits: number, payments: number, balance: number }> = {};
                   
-                  if (!dailyData[dateStr]) {
-                    dailyData[dateStr] = { date: dateStr, deposits: 0, payments: 0, balance: 0 };
-                  }
+                  sorted.forEach(t => {
+                    if (!t.created_at) return;
+                    const d = new Date(t.created_at);
+                    if (isNaN(d.getTime())) return;
+
+                    const dateStr = d.toLocaleDateString('es-GT', { month: 'short', day: 'numeric' });
+                    const isPositive = t.tipo === 'deposit' || t.tipo === 'referral_commission';
+                    const amt = Number(t.amount || 0);
+                    
+                    if (!dailyData[dateStr]) {
+                      dailyData[dateStr] = { date: dateStr, deposits: 0, payments: 0, balance: 0 };
+                    }
+                    
+                    if (isPositive) {
+                      dailyData[dateStr].deposits += amt;
+                      cumulative += amt;
+                    } else {
+                      dailyData[dateStr].payments += Math.abs(amt);
+                      cumulative -= Math.abs(amt);
+                    }
+                    dailyData[dateStr].balance = cumulative;
+                  });
                   
-                  if (isPositive) {
-                    dailyData[dateStr].deposits += amt;
-                    cumulative += amt;
-                  } else {
-                    dailyData[dateStr].payments += Math.abs(amt);
-                    cumulative -= Math.abs(amt);
-                  }
-                  dailyData[dateStr].balance = cumulative;
-                });
-                
-                return Object.values(dailyData).slice(-10);
+                  return Object.values(dailyData).slice(-10);
+                } catch (err) {
+                  console.error("Error generating chart data:", err);
+                  return [];
+                }
               }, [ledgerTransactions]);
 
               const getTipoLabel = (tipo: string) => {
@@ -1972,27 +2033,68 @@ export default function App() {
               };
 
               const handleExportCSV = () => {
-                const headers = ['Fecha', 'Socio', 'Código', 'Tipo', 'Referencia', 'Descripción', 'Monto (GTQ)'];
-                const rows = filteredLedgerTransactions.map(t => [
-                  new Date(t.created_at).toLocaleDateString(),
-                  t.partners?.name || currentUser?.name,
-                  t.partners?.partner_code || currentUser?.partnerCode,
-                  getTipoLabel(t.tipo),
-                  t.reference || '',
-                  t.description,
-                  t.amount
-                ]);
-                
-                const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(','))].join('\n');
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.setAttribute("href", url);
-                link.setAttribute("download", `Reporte_Financiero_${new Date().toISOString().slice(0,10)}.csv`);
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                try {
+                  const headers = ['Fecha', 'Socio', 'Código', 'Tipo', 'Referencia', 'Descripción', 'Monto (GTQ)'];
+                  const rows = filteredLedgerTransactions.map(t => {
+                    const partner = getPartnerInfo(t);
+                    return [
+                      t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A',
+                      partner?.name || currentUser?.name,
+                      partner?.partner_code || currentUser?.partnerCode,
+                      getTipoLabel(t.tipo),
+                      t.reference || '',
+                      t.description || '',
+                      t.amount
+                    ];
+                  });
+                  
+                  const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(','))].join('\n');
+                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.setAttribute("href", url);
+                  link.setAttribute("download", `Reporte_Financiero_${new Date().toISOString().slice(0,10)}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                } catch (err) {
+                  console.error("Error exporting CSV:", err);
+                }
               };
+
+              // Beautiful Tailwind CSS Fallback bar chart in case Recharts has any issues mounting
+              const ChartFallback = () => (
+                <div className="h-full w-full flex flex-col justify-end text-gray-400 bg-gray-50/50 rounded-2xl border border-gray-100 p-6">
+                  {chartData.length > 0 ? (
+                    <div className="flex-grow flex items-end justify-between gap-2 h-44 mb-4">
+                      {chartData.map((d, idx) => {
+                        const maxVal = Math.max(...chartData.map(item => item.balance), 1);
+                        const percentage = Math.max(10, Math.min(100, Math.round((d.balance / maxVal) * 100)));
+                        return (
+                          <div key={idx} className="flex-1 flex flex-col items-center gap-1 group h-full justify-end">
+                            <div className="w-full bg-slate-100/80 rounded-lg hover:bg-brand-orange/20 transition-all flex items-end justify-center relative" style={{ height: `${percentage}%` }}>
+                              <div className="absolute -top-8 bg-brand-gray-dark text-white text-[10px] font-black py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-md">
+                                Q{d.balance.toFixed(2)}
+                              </div>
+                              <div className="w-full bg-brand-orange rounded-lg transition-all" style={{ height: '3px' }} />
+                            </div>
+                            <span className="text-[9px] font-black text-gray-400 mt-1 uppercase tracking-tight">{d.date}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex-grow flex flex-col items-center justify-center text-center">
+                      <TrendingUp size={36} className="text-gray-300 mb-2" />
+                      <p className="text-sm font-semibold">Sin datos suficientes para graficar</p>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-xs font-bold text-gray-400 border-t border-gray-100 pt-3">
+                    <span className="flex items-center gap-1"><TrendingUp size={14} className="text-brand-orange" /> Balance Diario</span>
+                    <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-black">Visualización de Respaldo</span>
+                  </div>
+                </div>
+              );
 
               return (
                 <motion.div 
@@ -2084,43 +2186,45 @@ export default function App() {
                       </div>
                       <div className="h-64 w-full">
                         {chartData.length > 0 ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData}>
-                              <defs>
-                                <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#FF6B00" stopOpacity={0.2}/>
-                                  <stop offset="95%" stopColor="#FF6B00" stopOpacity={0}/>
-                                </linearGradient>
-                              </defs>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#00000005" vertical={false} />
-                              <XAxis 
-                                dataKey="date" 
-                                stroke="#9CA3AF" 
-                                fontSize={10} 
-                                tickLine={false} 
-                                axisLine={false} 
-                              />
-                              <YAxis 
-                                stroke="#9CA3AF" 
-                                fontSize={10} 
-                                tickLine={false} 
-                                axisLine={false} 
-                                tickFormatter={(value) => `Q${value}`}
-                              />
-                              <Tooltip 
-                                formatter={(value: any) => [`Q${Number(value).toFixed(2)}`, 'Saldo Neto']}
-                                contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
-                              />
-                              <Area 
-                                type="monotone" 
-                                dataKey="balance" 
-                                stroke="#FF6B00" 
-                                strokeWidth={3} 
-                                fillOpacity={1} 
-                                fill="url(#colorBalance)" 
-                              />
-                            </AreaChart>
-                          </ResponsiveContainer>
+                          <ErrorBoundary fallback={<ChartFallback />}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={chartData}>
+                                <defs>
+                                  <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#FF6B00" stopOpacity={0.2}/>
+                                    <stop offset="95%" stopColor="#FF6B00" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#00000005" vertical={false} />
+                                <XAxis 
+                                  dataKey="date" 
+                                  stroke="#9CA3AF" 
+                                  fontSize={10} 
+                                  tickLine={false} 
+                                  axisLine={false} 
+                                />
+                                <YAxis 
+                                  stroke="#9CA3AF" 
+                                  fontSize={10} 
+                                  tickLine={false} 
+                                  axisLine={false} 
+                                  tickFormatter={(value) => `Q${value}`}
+                                />
+                                <Tooltip 
+                                  formatter={(value: any) => [`Q${Number(value).toFixed(2)}`, 'Saldo Neto']}
+                                  contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                                />
+                                <Area 
+                                  type="monotone" 
+                                  dataKey="balance" 
+                                  stroke="#FF6B00" 
+                                  strokeWidth={3} 
+                                  fillOpacity={1} 
+                                  fill="url(#colorBalance)" 
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </ErrorBoundary>
                         ) : (
                           <div className="h-full w-full flex flex-col items-center justify-center text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 p-4">
                             <TrendingUp size={36} className="text-gray-300 mb-2" />
@@ -2236,15 +2340,22 @@ export default function App() {
                               return (
                                 <tr key={t.id} className="hover:bg-gray-50/30 transition-colors">
                                   <td className="px-6 py-4.5 whitespace-nowrap text-gray-500 font-medium">
-                                    {new Date(t.created_at).toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                    {safeFormatDate(t.created_at)}
                                     <span className="text-[10px] block text-gray-400 font-mono mt-0.5">
-                                      {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      {safeFormatTime(t.created_at)}
                                     </span>
                                   </td>
                                   {currentUser?.role === UserRole.ADMIN && (
                                     <td className="px-6 py-4.5 whitespace-nowrap">
-                                      <span className="font-bold text-slate-700">{t.partners?.name || 'Socio'}</span>
-                                      <span className="text-[10px] block text-gray-400 font-mono mt-0.5">{t.partners?.partner_code}</span>
+                                      {(() => {
+                                        const partnerInfo = getPartnerInfo(t);
+                                        return (
+                                          <>
+                                            <span className="font-bold text-slate-700">{partnerInfo?.name || 'Socio'}</span>
+                                            <span className="text-[10px] block text-gray-400 font-mono mt-0.5">{partnerInfo?.partner_code}</span>
+                                          </>
+                                        );
+                                      })()}
                                     </td>
                                   )}
                                   <td className="px-6 py-4.5 whitespace-nowrap">
