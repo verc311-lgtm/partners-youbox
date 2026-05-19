@@ -3008,6 +3008,19 @@ function DepositModal({ isOpen, onClose, onDeposit }: { isOpen: boolean, onClose
 
           <div className="space-y-2">
             <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Comprobante de Pago</label>
+            
+            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-xs text-gray-500">
+              <p className="font-black text-gray-600 uppercase tracking-wider text-[9px] mb-1">Cuentas Bancarias de YouBox:</p>
+              <div className="flex justify-between gap-4 font-bold mt-1">
+                <div>
+                  <span className="text-gray-400">BI:</span> <span className="text-brand-gray-dark font-mono">1990018267</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Banrural:</span> <span className="text-brand-gray-dark font-mono">3511042477</span>
+                </div>
+              </div>
+            </div>
+
             <div className="relative group">
               <input 
                 type="file" 
@@ -3717,6 +3730,19 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
       {/* Deposit Receipt Upload */}
       <div className="space-y-2">
         <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Boleta de Deposito (Q500.00) <span className="text-red-400">*</span></label>
+        
+        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-xs text-gray-500">
+          <p className="font-black text-gray-600 uppercase tracking-wider text-[9px] mb-1">Cuentas Bancarias de YouBox:</p>
+          <div className="flex justify-between gap-4 font-bold mt-1">
+            <div>
+              <span className="text-gray-400">BI:</span> <span className="text-brand-gray-dark font-mono">1990018267</span>
+            </div>
+            <div>
+              <span className="text-gray-400">Banrural:</span> <span className="text-brand-gray-dark font-mono">3511042477</span>
+            </div>
+          </div>
+        </div>
+
         <div className="relative group">
           <input 
             type="file" 
