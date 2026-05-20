@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect, ReactNode, FormEvent } from 'react';
+import { useState, useMemo, useEffect, ReactNode, FormEvent } from 'react';
 import { 
   BarChart3, 
   Wallet, 
@@ -22,8 +22,6 @@ import {
   Truck,
   CreditCard,
   FileText,
-  Search,
-  Filter,
   X,
   PieChart,
   Bell,
@@ -70,26 +68,7 @@ import { EmailConflictModal } from './EmailConflictModal';
 
 // Mock data removed for Phase 2 real integration
 
-// Premium Error Boundary to gracefully recover from Recharts or other runtime chart crashes
-class ErrorBoundary extends React.Component<{ children: React.ReactNode; fallback: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true };
-  }
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("ErrorBoundary caught a reports render exception:", error, errorInfo);
-  }
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
-    return this.props.children;
-  }
-}
-
+// Mock Data
 // Real integration with Supabase - start from 0
 
 
@@ -104,211 +83,7 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
   const [emailConflict, setEmailConflict] = useState<{ partnerId: string; currentEmail: string } | null>(null);
-  const [ledgerTransactions, setLedgerTransactions] = useState<any[]>([]);
-  const [selectedPartnerFilter, setSelectedPartnerFilter] = useState<string>('all');
-  const [reportsSearchQuery, setReportsSearchQuery] = useState('');
-  const [reportsTipoFilter, setReportsTipoFilter] = useState('all');
-
-  // Helper to safely format dates and times to prevent RangeError invalid time value crashes
-  const safeFormatDate = (dateStr: any) => {
-    if (!dateStr) return 'N/A';
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('es-GT', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
-
-  const safeFormatTime = (dateStr: any) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  // Helper to robustly handle both array or object join responses from Supabase
-  const getPartnerInfo = (t: any) => {
-    if (!t.partners) return { name: '', partner_code: '' };
-    if (Array.isArray(t.partners)) {
-      return t.partners[0] || { name: '', partner_code: '' };
-    }
-    return t.partners;
-  };
-
-  const reportsStats = useMemo(() => {
-    try {
-      const deposits = ledgerTransactions
-        .filter(t => t.tipo === 'deposit' || t.tipo === 'referral_commission')
-        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
-      
-      const payments = ledgerTransactions
-        .filter(t => t.tipo === 'payment' || t.tipo === 'withdrawal' || t.tipo === 'transfer_to_main')
-        .reduce((sum, t) => sum + Math.abs(Number(t.amount || 0)), 0);
-
-      let currentWalletBalance = 0;
-      if (currentUser?.role === UserRole.ADMIN) {
-        if (selectedPartnerFilter === 'all') {
-          currentWalletBalance = partners.reduce((sum, p) => sum + Number(p.walletBalance || 0), 0);
-        } else {
-          const targetPartner = partners.find(p => p.id === selectedPartnerFilter);
-          currentWalletBalance = targetPartner ? Number(targetPartner.walletBalance || 0) : 0;
-        }
-      } else {
-        currentWalletBalance = currentUser?.walletBalance || 0;
-      }
-
-      return {
-        deposits,
-        payments,
-        balance: currentWalletBalance
-      };
-    } catch (err) {
-      console.error("Error in reportsStats calculation:", err);
-      return { deposits: 0, payments: 0, balance: 0 };
-    }
-  }, [ledgerTransactions, partners, currentUser, selectedPartnerFilter]);
-
-  const filteredLedgerTransactions = useMemo(() => {
-    try {
-      return ledgerTransactions.filter(t => {
-        const partner = getPartnerInfo(t);
-        const matchesSearch = 
-          (t.reference?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
-          (t.description?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
-          (partner?.name?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase()) ||
-          (partner?.partner_code?.toLowerCase() || '').includes(reportsSearchQuery.toLowerCase());
-        
-        const matchesTipo = 
-          reportsTipoFilter === 'all' || 
-          (reportsTipoFilter === 'deposits' && (t.tipo === 'deposit' || t.tipo === 'referral_commission')) ||
-          (reportsTipoFilter === 'payments' && t.tipo === 'payment') ||
-          (reportsTipoFilter === 'withdrawals' && t.tipo === 'withdrawal') ||
-          (reportsTipoFilter === 'transfers' && t.tipo === 'transfer_to_main');
-
-        return matchesSearch && matchesTipo;
-      });
-    } catch (err) {
-      console.error("Error filtering transactions:", err);
-      return [];
-    }
-  }, [ledgerTransactions, reportsSearchQuery, reportsTipoFilter]);
-
-  const chartData = useMemo(() => {
-    try {
-      const sorted = [...ledgerTransactions].reverse();
-      let cumulative = 0;
-      const dailyData: Record<string, { date: string, deposits: number, payments: number, balance: number }> = {};
-      
-      sorted.forEach(t => {
-        if (!t.created_at) return;
-        const d = new Date(t.created_at);
-        if (isNaN(d.getTime())) return;
-
-        const dateStr = d.toLocaleDateString('es-GT', { month: 'short', day: 'numeric' });
-        const isPositive = t.tipo === 'deposit' || t.tipo === 'referral_commission';
-        const amt = Number(t.amount || 0);
-        
-        if (!dailyData[dateStr]) {
-          dailyData[dateStr] = { date: dateStr, deposits: 0, payments: 0, balance: 0 };
-        }
-        
-        if (isPositive) {
-          dailyData[dateStr].deposits += amt;
-          cumulative += amt;
-        } else {
-          dailyData[dateStr].payments += Math.abs(amt);
-          cumulative -= Math.abs(amt);
-        }
-        dailyData[dateStr].balance = cumulative;
-      });
-      
-      return Object.values(dailyData).slice(-10);
-    } catch (err) {
-      console.error("Error generating chart data:", err);
-      return [];
-    }
-  }, [ledgerTransactions]);
-
-  const getTipoLabel = (tipo: string) => {
-    switch (tipo) {
-      case 'deposit': return 'Carga / Depósito';
-      case 'payment': return 'Pago de Envío';
-      case 'withdrawal': return 'Retiro de Capital';
-      case 'referral_commission': return 'Comisión Referido';
-      case 'transfer_to_main': return 'Traspaso Billetera';
-      default: return tipo;
-    }
-  };
-
-  const getTipoBadgeClass = (tipo: string) => {
-    switch (tipo) {
-      case 'deposit': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'payment': return 'bg-orange-50 text-orange-700 border-orange-200';
-      case 'withdrawal': return 'bg-red-50 text-red-700 border-red-200';
-      case 'referral_commission': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
-      case 'transfer_to_main': return 'bg-blue-50 text-blue-700 border-blue-200';
-      default: return 'bg-slate-50 text-slate-700 border-slate-200';
-    }
-  };
-
-  const handleExportCSV = () => {
-    try {
-      const headers = ['Fecha', 'Socio', 'Código', 'Tipo', 'Referencia', 'Descripción', 'Monto (GTQ)'];
-      const rows = filteredLedgerTransactions.map(t => {
-        const partner = getPartnerInfo(t);
-        return [
-          t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A',
-          partner?.name || currentUser?.name,
-          partner?.partner_code || currentUser?.partnerCode,
-          getTipoLabel(t.tipo),
-          t.reference || '',
-          t.description || '',
-          t.amount
-        ];
-      });
-      
-      const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `Reporte_Financiero_${new Date().toISOString().slice(0,10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error("Error exporting CSV:", err);
-    }
-  };
-
-  const ChartFallback = () => (
-    <div className="h-full w-full flex flex-col justify-end text-gray-400 bg-gray-50/50 rounded-2xl border border-gray-100 p-6">
-      {chartData.length > 0 ? (
-        <div className="flex-grow flex items-end justify-between gap-2 h-44 mb-4">
-          {chartData.map((d, idx) => {
-            const maxVal = Math.max(...chartData.map(item => item.balance), 1);
-            const percentage = Math.max(10, Math.min(100, Math.round((d.balance / maxVal) * 100)));
-            return (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-1 group h-full justify-end">
-                <div className="w-full bg-slate-100/80 rounded-lg hover:bg-brand-orange/20 transition-all flex items-end justify-center relative" style={{ height: `${percentage}%` }}>
-                  <div className="absolute -top-8 bg-brand-gray-dark text-white text-[10px] font-black py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 shadow-md">
-                    Q{d.balance.toFixed(2)}
-                  </div>
-                  <div className="w-full bg-brand-orange rounded-lg transition-all" style={{ height: '3px' }} />
-                </div>
-                <span className="text-[9px] font-black text-gray-400 mt-1 uppercase tracking-tight">{d.date}</span>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="flex-grow flex flex-col items-center justify-center text-center">
-          <TrendingUp size={36} className="text-gray-300 mb-2" />
-          <p className="text-sm font-semibold">Sin datos suficientes para graficar</p>
-        </div>
-      )}
-      <div className="flex items-center justify-between text-xs font-bold text-gray-400 border-t border-gray-100 pt-3">
-        <span className="flex items-center gap-1"><TrendingUp size={14} className="text-brand-orange" /> Balance Diario</span>
-        <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-black">Visualización de Respaldo</span>
-      </div>
-    </div>
-  );
+  const [dbTransactions, setDbTransactions] = useState<any[]>([]);
 
   // Handle Auth State Changes
   useEffect(() => {
@@ -331,13 +106,6 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  // Fetch partner transactions when activeTab changes to reports
-  useEffect(() => {
-    if (currentUser && activeTab === 'reports') {
-      fetchPartnerTransactions(selectedPartnerFilter);
-    }
-  }, [activeTab, currentUser, selectedPartnerFilter]);
 
   // Real-time subscriptions
   useEffect(() => {
@@ -417,6 +185,7 @@ export default function App() {
           fetchPendingTransactions();
           fetchPackages(profile.id, profile.role); // Admin sees all packages
           fetchReferrals(profile.id, profile.role);
+          fetchDbTransactions();
         } else if (profile.status === UserStatus.ACTIVE) {
           fetchPackages(profile.id, profile.role);
           fetchReferrals(profile.id, profile.role);
@@ -426,6 +195,20 @@ export default function App() {
       console.error('Error fetching profile:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchDbTransactions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('partner_transactions')
+        .select('*, partners(name, partner_code)')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setDbTransactions(data || []);
+    } catch (error) {
+      console.error('Error fetching db transactions:', error);
     }
   };
 
@@ -620,27 +403,6 @@ export default function App() {
     }
   };
 
-  const fetchPartnerTransactions = async (partnerId?: string) => {
-    try {
-      let query = supabase
-        .from('partner_transactions')
-        .select('id, partner_id, tipo, amount, reference, description, created_at, partners(name, partner_code)')
-        .order('created_at', { ascending: false });
-
-      if (currentUser?.role === UserRole.PARTNER) {
-        query = query.eq('partner_id', currentUser.id);
-      } else if (partnerId && partnerId !== 'all') {
-        query = query.eq('partner_id', partnerId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setLedgerTransactions(data || []);
-    } catch (error) {
-      console.error('Error fetching partner transactions:', error);
-    }
-  };
-
 
   // Unread notifications count
   const unreadCount = currentUser?.notifications.filter(n => !n.isRead).length ?? 0;
@@ -786,6 +548,37 @@ export default function App() {
   };
 
 
+  // Level downgrade check (runs on login)
+  useEffect(() => {
+    if (!currentUser || currentUser.role === UserRole.ADMIN) return;
+    
+    const graceEnd = new Date(currentUser.gracePeriodEnd);
+    const now = new Date();
+    
+    if (now > graceEnd && currentUser.level === UserLevel.MASTER_BOX && currentUser.totalLbsThisMonth < 30) {
+      const downgradeNotification: NotificationType = {
+        id: `n-downgrade-${Date.now()}`,
+        title: 'Nivel Ajustado',
+        message: 'Tu período de gracia de 2 meses como Master Box ha terminado. Al no haber procesado más de 30 lbs, tu nivel ha sido ajustado a Emprendedor.',
+        type: 'level_downgrade',
+        isRead: false,
+        createdAt: now.toISOString()
+      };
+
+      const updatedUser = {
+        ...currentUser,
+        level: UserLevel.EMPRENDEDOR,
+        notifications: [downgradeNotification, ...currentUser.notifications]
+      };
+
+      setCurrentUser(updatedUser);
+      setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
+      console.log(`[EMAIL ENVIADO] A: ${currentUser.email} - Asunto: Tu nivel ha cambiado a Emprendedor`);
+    }
+  }, [currentUser?.id]);
+
+
+
   // Chart Data
   const volumeData = [
     { name: 'Lun', volume: 12 },
@@ -810,66 +603,15 @@ export default function App() {
     return UserLevel.EXPLORADOR;
   }, [currentUser?.totalLbsThisMonth]);
 
-  // Level check and sync (runs when currentLevel or volume changes)
+  // Sync levels if needed (simulating backend trigger)
   useEffect(() => {
-    if (!currentUser || currentUser.role === UserRole.ADMIN) return;
+    if (!currentUser) return;
+    if (currentUser.totalLbsThisMonth === 15 && currentUser.level === UserLevel.MASTER_BOX) return;
     
-    const syncLevelToDatabase = async () => {
-      let targetLevel = currentLevel;
-      
-      // Grace period check
-      const graceEnd = new Date(currentUser.gracePeriodEnd);
-      const now = new Date();
-      if (now <= graceEnd) {
-        targetLevel = UserLevel.MASTER_BOX;
-      }
-      
-      if (targetLevel !== currentUser.level) {
-        try {
-          // Update in Supabase (triggers will sync this to clientes table)
-          const { error } = await supabase
-            .from('partners')
-            .update({ level: targetLevel })
-            .eq('id', currentUser.id);
-            
-          if (error) throw error;
-          
-          let newNotifications = currentUser.notifications;
-          
-          // Add notification if downgraded
-          if (
-            (currentUser.level === UserLevel.MASTER_BOX && targetLevel === UserLevel.EMPRENDEDOR) ||
-            (currentUser.level === UserLevel.EMPRENDEDOR && targetLevel === UserLevel.EXPLORADOR) ||
-            (currentUser.level === UserLevel.MASTER_BOX && targetLevel === UserLevel.EXPLORADOR)
-          ) {
-            const downgradeNotification: NotificationType = {
-              id: `n-downgrade-${Date.now()}`,
-              title: 'Nivel Ajustado',
-              message: `Según tu volumen facturado, tu nivel ha sido ajustado a ${targetLevel}.`,
-              type: 'level_downgrade',
-              isRead: false,
-              createdAt: now.toISOString()
-            };
-            newNotifications = [downgradeNotification, ...newNotifications];
-            console.log(`[EMAIL ENVIADO] A: ${currentUser.email} - Asunto: Tu nivel ha cambiado a ${targetLevel}`);
-          }
-
-          const updatedUser = {
-            ...currentUser,
-            level: targetLevel,
-            notifications: newNotifications
-          };
-
-          setCurrentUser(updatedUser);
-          setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
-        } catch (error) {
-          console.error('Error syncing level to database:', error);
-        }
-      }
-    };
-
-    syncLevelToDatabase();
-  }, [currentLevel, currentUser?.level, currentUser?.gracePeriodEnd, currentUser?.id, currentUser?.role]);
+    if (currentLevel !== currentUser.level) {
+      setCurrentUser(prev => prev ? { ...prev, level: currentLevel } : null);
+    }
+  }, [currentLevel, currentUser?.level, currentUser?.totalLbsThisMonth]);
 
   // Real-time stats calculation
   const calculatedStats = useMemo(() => {
@@ -1092,23 +834,21 @@ export default function App() {
         throw partnerError;
       }
 
-      // Record transaction
+      // Record the activation deposit transaction
       const { error: txError } = await supabase
         .from('partner_transactions')
         .insert([{
           partner_id: partnerId,
           tipo: 'deposit',
-          amount: 500.00,
-          reference: 'ACT-INIT',
-          description: 'Depósito inicial de activación de cuenta'
+          amount: 500,
+          reference: 'ACTIVACION',
+          description: `Depósito de activación de socio`
         }]);
-
-      if (txError) {
-        console.error('Error inserting activation transaction:', txError);
-      }
+      if (txError) console.error('Error inserting activation transaction:', txError);
       
       alert('¡Éxito! Socio activado y sincronizado con YouBox GT.');
       await fetchAllPartners();
+      await fetchDbTransactions();
     } catch (error: any) {
       console.error('Activation error:', error);
       alert(`Error al activar: ${error.message}`);
@@ -1145,24 +885,22 @@ export default function App() {
 
       if (error) throw error;
 
-      // Record transaction
+      // Record the recharge deposit transaction
       const { error: txError } = await supabase
         .from('partner_transactions')
         .insert([{
           partner_id: partnerId,
           tipo: 'deposit',
           amount: rechargeAmount,
-          reference: `DEP-RCG-${Date.now().toString().slice(-4)}`,
-          description: 'Recarga de saldo aprobada por administración'
+          reference: 'RECARGA',
+          description: `Recarga de saldo aprobada por admin`
         }]);
-
-      if (txError) {
-        console.error('Error inserting deposit transaction:', txError);
-      }
+      if (txError) console.error('Error inserting recharge transaction:', txError);
 
       alert(`✅ Saldo de Q${rechargeAmount.toFixed(2)} acreditado a ${partnerData.name}.`);
       await fetchAllPartners();
       await fetchPendingTransactions();
+      await fetchDbTransactions();
 
     } catch (error: any) {
       console.error('Deposit approval error:', error);
@@ -1194,24 +932,22 @@ export default function App() {
 
       if (activateError) throw activateError;
 
-      // Record transaction
+      // Record the activation deposit transaction
       const { error: txError } = await supabase
         .from('partner_transactions')
         .insert([{
           partner_id: partnerId,
           tipo: 'deposit',
-          amount: 500.00,
-          reference: 'ACT-INIT',
-          description: 'Depósito inicial de activación de cuenta (Resolución correo)'
+          amount: 500,
+          reference: 'ACTIVACION',
+          description: `Depósito de activación de socio`
         }]);
-
-      if (txError) {
-        console.error('Error inserting activation transaction after email update:', txError);
-      }
+      if (txError) console.error('Error inserting activation transaction:', txError);
 
       setEmailConflict(null);
       alert('¡Éxito! Correo actualizado y socio activado correctamente.');
       await fetchAllPartners();
+      await fetchDbTransactions();
     } catch (error: any) {
       console.error('Update email error:', error);
       alert(`Error al actualizar: ${error.message}`);
@@ -1221,141 +957,179 @@ export default function App() {
   };
 
 
-  const handleMarkAsPaid = (packageId: string) => {
+  const handleMarkAsPaid = async (packageId: string) => {
     const pkg = packages.find(p => p.id === packageId);
     if (!pkg || pkg.status === 'PAGADO') return;
 
-    // Update package status
-    setPackages(prev => prev.map(p => p.id === packageId ? { ...p, status: 'PAGADO' } : p));
+    try {
+      setIsLoading(true);
 
-    // Find owner and sponsor
-    const owner = partners.find(p => p.id === pkg.ownerId);
-    if (!owner || !owner.sponsorId) return; // No sponsor, no commission
+      // Find owner
+      const owner = partners.find(p => p.id === pkg.ownerId);
+      if (!owner) throw new Error('No se encontró el socio dueño de este paquete');
 
-    const sponsorIndex = partners.findIndex(p => p.id === owner.sponsorId);
-    if (sponsorIndex === -1) return;
+      if (owner.walletBalance < pkg.cost) {
+        alert('Saldo insuficiente en la billetera del socio.');
+        return;
+      }
 
-    const sponsor = partners[sponsorIndex];
-    const commissionAmount = pkg.weight * 2; // Q2.00 por libra cobrada
+      // 1. Deduct cost from owner's wallet balance in partners table
+      const newOwnerBalance = owner.walletBalance - pkg.cost;
+      const { error: ownerError } = await supabase
+        .from('partners')
+        .update({ wallet_balance: newOwnerBalance })
+        .eq('id', owner.id);
 
-    // Create transaction
-    const newTx: Transaction = {
-      id: `t-ref-${Date.now()}`,
-      amount: commissionAmount,
-      type: 'referral_commission',
-      description: `Ganancia por referido ${owner.name} - Guía #${pkg.trackingNumber}`,
-      createdAt: new Date().toISOString(),
-      status: 'completed',
-      frozen: !sponsor.isActive
-    };
+      if (ownerError) throw ownerError;
 
-    setTransactions(prev => [newTx, ...prev]);
+      // 2. Update package status in packages (paquetes) table
+      const { error: pkgError } = await supabase
+        .from('paquetes')
+        .update({ estado: 'PAGADO' })
+        .eq('id', packageId);
 
-    // Update sponsor balance
-    const updatedPartners = [...partners];
-    let newNotification = null;
-    let newBonusTx = null;
-    let bonusAmount = 0;
+      if (pkgError) throw pkgError;
 
-    const previousVolume = sponsor.referralLbsThisMonth;
-    const newVolume = previousVolume + pkg.weight;
+      // 3. Insert payment transaction in partner_transactions for owner
+      const { error: txError } = await supabase
+        .from('partner_transactions')
+        .insert([{
+          partner_id: owner.id,
+          tipo: 'payment',
+          amount: pkg.cost,
+          reference: 'PAGO_FLETE',
+          description: `Pago de flete: ${pkg.trackingNumber} (${pkg.weight} lbs)`
+        }]);
 
-    // Check gamification bonus (500 lbs threshold)
-    if (previousVolume < 500 && newVolume >= 500) {
-      bonusAmount = 100;
-      newBonusTx = {
-        id: `t-bonus-${Date.now()}`,
-        amount: bonusAmount,
-        type: 'referral_commission',
-        description: `Bono de Red por alcanzar 500 lbs!`,
-        createdAt: new Date().toISOString(),
-        status: 'completed'
-      };
-      // Send console email
-      console.log(`[EMAIL ENVIADO] A: ${sponsor.email} - Asunto: ¡Felicidades! Alcanzaste el Bono de Red de Q100`);
+      if (txError) console.error('Error inserting flete payment transaction:', txError);
+
+      // 4. Commissions and network volume logic for sponsor
+      if (owner.sponsorId) {
+        const sponsorIndex = partners.findIndex(p => p.id === owner.sponsorId);
+        if (sponsorIndex !== -1) {
+          const sponsor = partners[sponsorIndex];
+          const commissionAmount = pkg.weight * 2; // Q2.00 por libra cobrada
+          const previousVolume = sponsor.referralLbsThisMonth;
+          const newVolume = previousVolume + pkg.weight;
+          
+          let bonusAmount = 0;
+          if (previousVolume < 500 && newVolume >= 500) {
+            bonusAmount = 100;
+          }
+
+          if (sponsor.isActive) {
+            // Update sponsor balance in database
+            const { error: sponsorError } = await supabase
+              .from('partners')
+              .update({
+                wallet_balance: sponsor.walletBalance + bonusAmount,
+                referral_balance: sponsor.referralBalance + commissionAmount,
+                referral_lbs_this_month: newVolume
+              })
+              .eq('id', sponsor.id);
+
+            if (sponsorError) console.error('Error updating sponsor balance:', sponsorError);
+
+            // Insert referral commission transaction
+            await supabase
+              .from('partner_transactions')
+              .insert([{
+                partner_id: sponsor.id,
+                tipo: 'referral_commission',
+                amount: commissionAmount,
+                reference: 'COMISION_RED',
+                description: `Ganancia por referido ${owner.name} - Guía #${pkg.trackingNumber}`
+              }]);
+
+            if (bonusAmount > 0) {
+              await supabase
+                .from('partner_transactions')
+                .insert([{
+                  partner_id: sponsor.id,
+                  tipo: 'referral_commission',
+                  amount: bonusAmount,
+                  reference: 'BONO_RED',
+                  description: `Bono de Red por alcanzar 500 lbs!`
+                }]);
+            }
+          } else {
+            // Update sponsor frozen balance in database
+            const { error: sponsorError } = await supabase
+              .from('partners')
+              .update({
+                frozen_balance: sponsor.frozenBalance + commissionAmount,
+                referral_lbs_this_month: newVolume
+              })
+              .eq('id', sponsor.id);
+
+            if (sponsorError) console.error('Error updating sponsor frozen balance:', sponsorError);
+          }
+        }
+      }
+
+      alert(`✅ Paquete ${pkg.trackingNumber} pagado e historial de capital actualizado.`);
+      
+      // Re-fetch all to sync frontend
+      await fetchAllPartners();
+      if (currentUser) {
+        await fetchPackages(currentUser.id, currentUser.role);
+      }
+      await fetchDbTransactions();
+    } catch (error: any) {
+      console.error('Error processing package payment:', error);
+      alert(`Error al pagar paquete: ${error.message}`);
+    } finally {
+      setIsLoading(false);
     }
-
-    if (sponsor.isActive) {
-      updatedPartners[sponsorIndex] = {
-        ...sponsor,
-        referralLbsThisMonth: newVolume,
-        walletBalance: sponsor.walletBalance + bonusAmount,
-        referralBalance: sponsor.referralBalance + commissionAmount,
-        totalEarnings: sponsor.totalEarnings + commissionAmount + bonusAmount,
-        earningsThisMonth: sponsor.earningsThisMonth + commissionAmount + bonusAmount,
-        notifications: bonusAmount > 0 ? [
-          {
-            id: `n-${Date.now()}`,
-            title: '¡Meta Alcanzada!',
-            message: 'Tu red ha superado las 500 lbs este mes. Has recibido un bono de Q100.00 en tu Saldo Principal.',
-            type: 'bonus',
-            isRead: false,
-            createdAt: new Date().toISOString()
-          },
-          ...sponsor.notifications
-        ] : sponsor.notifications
-      };
-    } else {
-      // Frozen logic
-      newNotification = {
-        id: `n-${Date.now()}`,
-        title: '¡Tienes dinero congelado!',
-        message: `Un referido tuyo facturó ${pkg.weight}lbs. Tienes Q${commissionAmount.toFixed(2)} congelados. ¡Activa tu cuenta!`,
-        type: 'frozen_commission',
-        isRead: false,
-        createdAt: new Date().toISOString()
-      };
-      console.log(`[EMAIL ENVIADO] A: ${sponsor.email} - Asunto: Dinero Congelado por inactividad`);
-
-      updatedPartners[sponsorIndex] = {
-        ...sponsor,
-        referralLbsThisMonth: newVolume,
-        frozenBalance: sponsor.frozenBalance + commissionAmount,
-        notifications: [newNotification, ...sponsor.notifications]
-      };
-    }
-    setPartners(updatedPartners);
-
-    if (newBonusTx) {
-      setTransactions(prev => [newTx, newBonusTx, ...prev]);
-    } else {
-      setTransactions(prev => [newTx, ...prev]);
-    }
-
-    // If current user is the sponsor, update their state too
-    if (currentUser.id === sponsor.id) {
-      setCurrentUser(updatedPartners[sponsorIndex]);
-    }
-
-    alert(`Paquete ${pkg.trackingNumber} pagado. Comisión ${sponsor.isActive ? 'acreditada' : 'congelada'} al patrocinador.`);
   };
 
-  const handleTransferReferral = () => {
+  const handleTransferReferral = async () => {
     if (currentUser.referralBalance <= 0) return;
 
     const amount = currentUser.referralBalance;
+    try {
+      setIsLoading(true);
+      // Update database: principal balance increases, referral balance sets to 0
+      const { error: updateError } = await supabase
+        .from('partners')
+        .update({
+          wallet_balance: currentUser.walletBalance + amount,
+          referral_balance: 0
+        })
+        .eq('id', currentUser.id);
 
-    const newTx: Transaction = {
-      id: `t-trans-${Date.now()}`,
-      amount,
-      type: 'transfer_to_main',
-      description: 'Transferencia de Ganancias de Red',
-      createdAt: new Date().toISOString(),
-      status: 'completed'
-    };
+      if (updateError) throw updateError;
 
-    setTransactions(prev => [newTx, ...prev]);
+      // Record transfer transaction in partner_transactions
+      const { error: txError } = await supabase
+        .from('partner_transactions')
+        .insert([{
+          partner_id: currentUser.id,
+          tipo: 'transfer_to_main',
+          amount: amount,
+          reference: 'TRANSFERENCIA',
+          description: 'Transferencia de Ganancias de Red'
+        }]);
 
-    const updatedUser = {
-      ...currentUser,
-      walletBalance: currentUser.walletBalance + amount,
-      referralBalance: 0
-    };
+      if (txError) console.error('Error inserting transfer transaction:', txError);
 
-    setCurrentUser(updatedUser);
-    setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
-    
-    alert(`Se han transferido Q${amount.toFixed(2)} a tu Saldo Principal.`);
+      const updatedUser = {
+        ...currentUser,
+        walletBalance: currentUser.walletBalance + amount,
+        referralBalance: 0
+      };
+
+      setCurrentUser(updatedUser);
+      setPartners(prev => prev.map(p => p.id === updatedUser.id ? updatedUser : p));
+      
+      alert(`Se han transferido Q${amount.toFixed(2)} a tu Saldo Principal.`);
+      await fetchDbTransactions();
+    } catch (error: any) {
+      console.error('Error transferring referral balance:', error);
+      alert(`Error al transferir: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -1450,6 +1224,12 @@ export default function App() {
                 label="Logística Global" 
                 active={activeTab === 'packages'} 
                 onClick={() => setActiveTab('packages')} 
+              />
+              <NavItem 
+                icon={<PieChart size={20} />} 
+                label="Control de Capital" 
+                active={activeTab === 'reports'} 
+                onClick={() => setActiveTab('reports')} 
               />
             </>
           )}
@@ -1695,16 +1475,6 @@ export default function App() {
                         <div className={currentUser.level === UserLevel.EMPRENDEDOR ? 'text-brand-orange font-black' : ''}>Entrepreneur</div>
                         <div className={currentUser.level === UserLevel.MASTER_BOX ? 'text-brand-orange font-black' : ''}>Master Box</div>
                       </div>
-
-                      {/* Downgrade Warning Alert */}
-                      {currentUser.level === UserLevel.MASTER_BOX && currentUser.totalLbsThisMonth < 30 && (
-                        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
-                          <AlertCircle className="text-amber-500 shrink-0" size={16} />
-                          <p className="text-xs text-amber-700 leading-relaxed">
-                            <strong>Atención:</strong> Para mantener tu nivel <strong>Master Box</strong> el próximo mes, necesitas procesar <span className="font-black underline">{ (30 - currentUser.totalLbsThisMonth).toFixed(1) } lbs</span> adicionales este mes.
-                          </p>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -2147,287 +1917,139 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-8"
               >
-                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-                  <div>
-                    <h1 className="text-3xl font-black text-brand-gray-dark tracking-tight">Control de Capital y Reportes</h1>
-                    <p className="text-gray-400 text-sm">Visualización detallada de depósitos, consumos y balances financieros.</p>
-                  </div>
-                  <button 
-                    onClick={handleExportCSV}
-                    className="flex items-center gap-2 p-3 bg-white border border-gray-200 rounded-xl text-gray-600 hover:text-brand-orange hover:border-brand-orange transition-all shadow-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed self-start md:self-auto"
-                  >
-                    <Download size={18} /> Exportar CSV
-                  </button>
-                </div>
+                {currentUser.role === UserRole.ADMIN ? (
+                  <AdminReportsView 
+                    dbTransactions={dbTransactions} 
+                    partners={partners} 
+                    onRefresh={fetchDbTransactions} 
+                  />
+                ) : (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h1 className="text-3xl font-black text-brand-gray-dark">Reporte de Operaciones</h1>
+                        <p className="text-gray-400 text-sm">Visualización detallada de tu actividad logística.</p>
+                      </div>
+                      <button className="p-3 bg-white border border-gray-200 rounded-xl text-gray-400 hover:text-brand-gray-dark transition-all shadow-sm">
+                        <FileText size={20} />
+                      </button>
+                    </div>
 
-                {/* Admin Partner Selector */}
-                {currentUser?.role === UserRole.ADMIN && (
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-white/40 p-5 rounded-2xl border border-gray-100 backdrop-blur-md shadow-sm">
-                    <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
-                      <Users size={16} className="text-brand-orange" />
-                      <span>Filtrar por Socio Comercial:</span>
-                    </div>
-                    <select
-                      value={selectedPartnerFilter}
-                      onChange={(e) => setSelectedPartnerFilter(e.target.value)}
-                      className="rounded-xl border-gray-200 text-sm font-semibold focus:border-brand-orange focus:ring-brand-orange py-2 px-3 bg-white shadow-sm outline-none transition-all flex-1 sm:max-w-xs"
-                    >
-                      <option value="all">👥 Todos los Socios</option>
-                      {partners.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.partnerCode})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Deposits Card */}
-                  <div className="glass-card p-6 bg-gradient-to-br from-emerald-50/50 to-teal-50/20 border-emerald-100 flex items-center justify-between hover:scale-[1.01] transition-transform shadow-sm">
-                    <div className="space-y-1">
-                      <p className="text-[10px] uppercase font-black tracking-widest text-emerald-600/80">Aportaciones (Depósitos)</p>
-                      <p className="text-3xl font-black text-emerald-800 tracking-tight">Q{reportsStats.deposits.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                    </div>
-                    <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-600 border border-emerald-200/50">
-                      <ArrowDownLeft size={24} />
-                    </div>
-                  </div>
-
-                  {/* Payments Card */}
-                  <div className="glass-card p-6 bg-gradient-to-br from-rose-50/50 to-orange-50/20 border-rose-100 flex items-center justify-between hover:scale-[1.01] transition-transform shadow-sm">
-                    <div className="space-y-1">
-                      <p className="text-[10px] uppercase font-black tracking-widest text-rose-600/80">Consumos (Utilizado)</p>
-                      <p className="text-3xl font-black text-rose-800 tracking-tight">Q{reportsStats.payments.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                    </div>
-                    <div className="p-3 bg-rose-500/10 rounded-2xl text-rose-600 border border-rose-200/50">
-                      <ArrowUpRight size={24} />
-                    </div>
-                  </div>
-
-                  {/* Balance Card */}
-                  <div className="glass-card p-6 bg-gradient-to-br from-brand-orange/5 to-[#FF8A00]/5 border-brand-orange/10 flex items-center justify-between hover:scale-[1.01] transition-transform shadow-sm">
-                    <div className="space-y-1">
-                      <p className="text-[10px] uppercase font-black tracking-widest text-brand-orange">Saldo en Billeteras</p>
-                      <p className="text-3xl font-black text-brand-gray-dark tracking-tight">Q{reportsStats.balance.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                    </div>
-                    <div className="p-3 bg-brand-orange/10 rounded-2xl text-brand-orange border border-brand-orange/20">
-                      <Wallet size={24} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Chart and Details */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  {/* Chart Container */}
-                  <div className="glass-card p-6 lg:col-span-2 shadow-sm border-gray-100 space-y-4">
-                    <div>
-                      <h3 className="font-bold text-lg text-brand-gray-dark">Tendencia de Saldos</h3>
-                      <p className="text-gray-400 text-xs">Historial del capital neto circulante de los últimos días de actividad.</p>
-                    </div>
-                    <div className="h-64 w-full">
-                      {chartData.length > 0 ? (
-                        <ErrorBoundary fallback={<ChartFallback />}>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      <div className="glass-card p-8 space-y-6 shadow-sm border-gray-100">
+                        <h3 className="font-bold text-lg text-brand-gray-dark">Flujo de Libras (Semanal)</h3>
+                        <div className="h-64 w-full">
                           <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData}>
+                            <AreaChart data={volumeData}>
                               <defs>
-                                <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                                <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
                                   <stop offset="5%" stopColor="#FF6B00" stopOpacity={0.2}/>
                                   <stop offset="95%" stopColor="#FF6B00" stopOpacity={0}/>
                                 </linearGradient>
                               </defs>
                               <CartesianGrid strokeDasharray="3 3" stroke="#00000005" vertical={false} />
                               <XAxis 
-                                dataKey="date" 
-                                stroke="#9CA3AF" 
+                                dataKey="name" 
+                                stroke="#D1D5DB" 
                                 fontSize={10} 
                                 tickLine={false} 
                                 axisLine={false} 
                               />
                               <YAxis 
-                                stroke="#9CA3AF" 
+                                stroke="#D1D5DB" 
                                 fontSize={10} 
                                 tickLine={false} 
                                 axisLine={false} 
-                                tickFormatter={(value) => `Q${value}`}
+                                tickFormatter={(value) => `${value}lb`}
                               />
                               <Tooltip 
-                                formatter={(value: any) => [`Q${Number(value).toFixed(2)}`, 'Saldo Neto']}
                                 contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                                itemStyle={{ color: '#FF6B00', fontSize: '12px', fontWeight: 'bold' }}
                               />
                               <Area 
                                 type="monotone" 
-                                dataKey="balance" 
+                                dataKey="volume" 
                                 stroke="#FF6B00" 
                                 strokeWidth={3} 
                                 fillOpacity={1} 
-                                fill="url(#colorBalance)" 
+                                fill="url(#colorVolume)" 
                               />
                             </AreaChart>
                           </ResponsiveContainer>
-                        </ErrorBoundary>
-                      ) : (
-                        <div className="h-full w-full flex flex-col items-center justify-center text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 p-4">
-                          <TrendingUp size={36} className="text-gray-300 mb-2" />
-                          <p className="text-sm font-semibold">Sin datos suficientes para graficar</p>
-                          <p className="text-[10px] text-gray-400">Las transacciones completadas aparecerán aquí.</p>
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
 
-                  {/* Quick Financial Overview */}
-                  <div className="glass-card p-6 flex flex-col shadow-sm border-gray-100 space-y-6">
-                    <div>
-                      <h3 className="font-bold text-lg text-brand-gray-dark">Resumen Ejecutivo</h3>
-                      <p className="text-gray-400 text-xs">Estadísticas clave de capital comercial.</p>
-                    </div>
-                    
-                    <div className="space-y-4 flex-1 flex flex-col justify-center">
-                      <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between hover:bg-gray-100/50 transition-colors">
-                        <div>
-                          <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1.5">Tasa de Consumo</p>
-                          <p className="text-sm font-bold text-brand-gray-dark">Consumo vs Depósitos</p>
+                      <div className="glass-card p-8 flex flex-col shadow-sm border-gray-100">
+                        <h3 className="font-bold text-lg text-brand-gray-dark mb-8">Distribución por Origen</h3>
+                        <div className="flex-1 flex items-center justify-center relative">
+                          <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
+                            <p className="text-3xl font-black text-brand-gray-dark tracking-tighter">100%</p>
+                            <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Global</p>
+                          </div>
+                          <ResponsiveContainer width="100%" height={240}>
+                            <RePieChart>
+                              <Pie
+                                data={sourceData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={70}
+                                outerRadius={90}
+                                paddingAngle={8}
+                                dataKey="value"
+                                stroke="none"
+                              >
+                                {sourceData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip 
+                                contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                              />
+                            </RePieChart>
+                          </ResponsiveContainer>
                         </div>
-                        <p className="text-lg font-black text-brand-orange">
-                          {reportsStats.deposits > 0 
-                            ? `${Math.min(100, Math.round((reportsStats.payments / reportsStats.deposits) * 100))}%` 
-                            : '0%'}
-                        </p>
-                      </div>
-
-                      <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between hover:bg-gray-100/50 transition-colors">
-                        <div>
-                          <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1.5">Transacciones Totales</p>
-                          <p className="text-sm font-bold text-brand-gray-dark">Operaciones Registradas</p>
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                          {sourceData.map((item) => (
+                            <div key={item.name} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-100 rounded-xl">
+                              <div className={cn("w-2 h-2 rounded-full", item.name === 'Laredo' ? 'bg-brand-orange' : 'bg-[#FF8A00]')} />
+                              <div>
+                                <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1">{item.name}</p>
+                                <p className="text-sm font-black text-brand-gray-dark">{item.value}%</p>
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                        <p className="text-lg font-black text-brand-gray-dark">{ledgerTransactions.length}</p>
                       </div>
+                    </div>
 
-                      <div className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-center justify-between hover:bg-gray-100/50 transition-colors">
-                        <div>
-                          <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1.5">Promedio Operación</p>
-                          <p className="text-sm font-bold text-brand-gray-dark">Monto Promedio</p>
+                    <div className="glass-card p-8 shadow-sm border-gray-100">
+                      <h3 className="font-bold text-lg text-brand-gray-dark mb-6">Eficiencia de Envios</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div className="space-y-2">
+                           <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Tiempo Promedio</p>
+                           <p className="text-2xl font-black text-brand-gray-dark">4.2 <span className="text-sm font-medium opacity-40">días</span></p>
+                           <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                             <div className="h-full orange-gradient w-[85%]" />
+                           </div>
                         </div>
-                        <p className="text-lg font-black text-brand-gray-dark">
-                          Q{ledgerTransactions.length > 0 
-                            ? Math.round(ledgerTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0) / ledgerTransactions.length).toLocaleString('es-GT') 
-                            : '0'}
-                        </p>
+                        <div className="space-y-2">
+                           <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Ahorro Estimado</p>
+                           <p className="text-2xl font-black text-green-600">Q1,240 <span className="text-sm font-medium opacity-40">/mes</span></p>
+                           <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                             <div className="h-full bg-green-500 w-[70%]" />
+                           </div>
+                        </div>
+                        <div className="space-y-2">
+                           <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Satisfacción Regional</p>
+                           <p className="text-2xl font-black text-blue-600">98.4%</p>
+                           <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                             <div className="h-full bg-blue-500 w-[98%]" />
+                           </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Ledger Table Section */}
-                <div className="glass-card overflow-hidden shadow-sm border-gray-100 flex flex-col">
-                  <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
-                    <div>
-                      <h3 className="font-bold text-brand-gray-dark flex items-center gap-2">
-                        <History size={18} className="text-brand-orange" />
-                        Libro Mayor de Operaciones
-                      </h3>
-                      <p className="text-gray-400 text-xs mt-0.5">Listado de transacciones financieras registradas en la plataforma.</p>
-                    </div>
-
-                    {/* Filters */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                      {/* Search Bar */}
-                      <div className="relative">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                        <input
-                          type="text"
-                          placeholder="Buscar referencia o descripción..."
-                          value={reportsSearchQuery}
-                          onChange={(e) => setReportsSearchQuery(e.target.value)}
-                          className="pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange w-full sm:w-60 transition-all font-medium"
-                        />
-                      </div>
-
-                      {/* Type Select */}
-                      <div className="relative">
-                        <select
-                          value={reportsTipoFilter}
-                          onChange={(e) => setReportsTipoFilter(e.target.value)}
-                          className="appearance-none pl-4 pr-10 py-2 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-brand-orange focus:ring-1 focus:ring-brand-orange font-semibold shadow-sm cursor-pointer"
-                        >
-                          <option value="all">📁 Todos los Tipos</option>
-                          <option value="deposits">🟢 Aportes / Depósitos</option>
-                          <option value="payments">🟠 Pagos Facturas</option>
-                          <option value="withdrawals">🔴 Retiros</option>
-                          <option value="transfers">🔵 Traspasos</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Table element */}
-                  <div className="overflow-x-auto">
-                    {filteredLedgerTransactions.length > 0 ? (
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-gray-50/50 text-[10px] uppercase font-black tracking-widest text-gray-400 border-b border-gray-100">
-                            <th className="px-6 py-4">Fecha</th>
-                            {currentUser?.role === UserRole.ADMIN && <th className="px-6 py-4">Socio</th>}
-                            <th className="px-6 py-4">Operación</th>
-                            <th className="px-6 py-4">Referencia</th>
-                            <th className="px-6 py-4">Descripción</th>
-                            <th className="px-6 py-4 text-right">Monto (GTQ)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100/50 text-sm">
-                          {filteredLedgerTransactions.map((t) => {
-                            const isPositive = t.tipo === 'deposit' || t.tipo === 'referral_commission';
-                            return (
-                              <tr key={t.id} className="hover:bg-gray-50/30 transition-colors">
-                                <td className="px-6 py-4.5 whitespace-nowrap text-gray-500 font-medium">
-                                  {safeFormatDate(t.created_at)}
-                                  <span className="text-[10px] block text-gray-400 font-mono mt-0.5">
-                                    {safeFormatTime(t.created_at)}
-                                  </span>
-                                </td>
-                                {currentUser?.role === UserRole.ADMIN && (
-                                  <td className="px-6 py-4.5 whitespace-nowrap">
-                                    {(() => {
-                                      const partnerInfo = getPartnerInfo(t);
-                                      return (
-                                        <>
-                                          <span className="font-bold text-slate-700">{partnerInfo?.name || 'Socio'}</span>
-                                          <span className="text-[10px] block text-gray-400 font-mono mt-0.5">{partnerInfo?.partner_code}</span>
-                                        </>
-                                      );
-                                    })()}
-                                  </td>
-                                )}
-                                <td className="px-6 py-4.5 whitespace-nowrap">
-                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black border uppercase tracking-wider shadow-sm ${getTipoBadgeClass(t.tipo)}`}>
-                                    {getTipoLabel(t.tipo)}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4.5 whitespace-nowrap font-mono text-xs font-bold text-slate-600">
-                                  {t.reference || 'N/A'}
-                                </td>
-                                <td className="px-6 py-4.5 text-gray-600 font-medium max-w-xs truncate" title={t.description}>
-                                  {t.description}
-                                </td>
-                                <td className={`px-6 py-4.5 whitespace-nowrap text-right font-black text-base ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                  {isPositive ? '+' : '-'} Q{Math.abs(t.amount).toFixed(2)}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div className="p-12 text-center text-gray-400 flex flex-col items-center justify-center">
-                        <History size={48} className="text-gray-300 mb-3" />
-                        <p className="text-base font-bold text-slate-700">Sin movimientos registrados</p>
-                        <p className="text-xs text-gray-400 max-w-sm mt-1">No se encontraron registros de transacciones que coincidan con los filtros seleccionados.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  </>
+                )}
               </motion.div>
             )}
 
@@ -3008,19 +2630,6 @@ function DepositModal({ isOpen, onClose, onDeposit }: { isOpen: boolean, onClose
 
           <div className="space-y-2">
             <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Comprobante de Pago</label>
-            
-            <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-xs text-gray-500">
-              <p className="font-black text-gray-600 uppercase tracking-wider text-[9px] mb-1">Cuentas Bancarias de YouBox:</p>
-              <div className="flex justify-between gap-4 font-bold mt-1">
-                <div>
-                  <span className="text-gray-400">BI:</span> <span className="text-brand-gray-dark font-mono">1990018267</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Banrural:</span> <span className="text-brand-gray-dark font-mono">3511042477</span>
-                </div>
-              </div>
-            </div>
-
             <div className="relative group">
               <input 
                 type="file" 
@@ -3193,6 +2802,482 @@ function QuickPackageForm({ onRegister, currentLevel }: { onRegister: (w: number
         </button>
       </div>
     </form>
+  );
+}
+
+interface AdminReportsViewProps {
+  dbTransactions: any[];
+  partners: UserProfile[];
+  onRefresh: () => Promise<void>;
+}
+
+function AdminReportsView({ dbTransactions, partners, onRefresh }: AdminReportsViewProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 1. Calculate Metrics
+  // Confirmed deposits: only type 'deposit'
+  const totalDeposits = useMemo(() => {
+    return dbTransactions
+      .filter(tx => tx.tipo === 'deposit')
+      .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  }, [dbTransactions]);
+
+  // Consumido/Utilizado: payments and withdrawals (absolute amount)
+  const totalUtilizado = useMemo(() => {
+    return dbTransactions
+      .filter(tx => tx.tipo === 'payment' || tx.tipo === 'withdrawal')
+      .reduce((sum, tx) => sum + Math.abs(Number(tx.amount) || 0), 0);
+  }, [dbTransactions]);
+
+  // Saldo en billeteras: sum of wallet_balance and referral_balance of active partners
+  const totalSaldosBilleteras = useMemo(() => {
+    return partners
+      .filter(p => p.status === UserStatus.ACTIVE && p.role === UserRole.PARTNER)
+      .reduce((sum, p) => sum + (p.walletBalance || 0) + (p.referralBalance || 0), 0);
+  }, [partners]);
+
+  // 2. Trend Data
+  const trendData = useMemo(() => {
+    const groups: Record<string, { date: string; deposits: number; payments: number; timestamp: number }> = {};
+    
+    dbTransactions.forEach(tx => {
+      if (!tx.created_at) return;
+      const d = new Date(tx.created_at);
+      const dateStr = d.toISOString().split('T')[0];
+      const formattedDate = d.toLocaleDateString('es-GT', { day: '2-digit', month: 'short' });
+
+      if (!groups[dateStr]) {
+        groups[dateStr] = {
+          date: formattedDate,
+          deposits: 0,
+          payments: 0,
+          timestamp: d.getTime()
+        };
+      }
+
+      const amount = Number(tx.amount) || 0;
+      if (tx.tipo === 'deposit') {
+        groups[dateStr].deposits += amount;
+      } else if (tx.tipo === 'payment' || tx.tipo === 'withdrawal') {
+        groups[dateStr].payments += Math.abs(amount);
+      }
+    });
+
+    return Object.values(groups).sort((a, b) => a.timestamp - b.timestamp);
+  }, [dbTransactions]);
+
+  const hasTrendData = trendData.length >= 2;
+
+  // 3. Executive Summary calculations
+  const totalTransactionsCount = dbTransactions.length;
+  
+  const consumptionRate = useMemo(() => {
+    if (totalDeposits === 0) return 0;
+    return (totalUtilizado / totalDeposits) * 100;
+  }, [totalDeposits, totalUtilizado]);
+
+  const averageTransactionValue = useMemo(() => {
+    if (totalTransactionsCount === 0) return 0;
+    const sumAbsolute = dbTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.amount) || 0), 0);
+    return sumAbsolute / totalTransactionsCount;
+  }, [dbTransactions, totalTransactionsCount]);
+
+  // 4. Filtering ledger
+  const filteredTransactions = useMemo(() => {
+    return dbTransactions.filter(tx => {
+      const partnerName = tx.partners?.name || '';
+      const partnerCode = tx.partners?.partner_code || '';
+      const reference = tx.reference || '';
+      const description = tx.description || '';
+      
+      const matchesSearch = 
+        partnerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        partnerCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        description.toLowerCase().includes(searchTerm.toLowerCase());
+        
+      const matchesType = selectedType === 'all' || tx.tipo === selectedType;
+      
+      return matchesSearch && matchesType;
+    });
+  }, [dbTransactions, searchTerm, selectedType]);
+
+  // 5. CSV Export Helper
+  const handleExportCSV = () => {
+    const headers = ['Fecha/Hora', 'Codigo Socio', 'Nombre Socio', 'Tipo Transaccion', 'Referencia', 'Descripcion', 'Monto (Q)'];
+    const rows = filteredTransactions.map(tx => {
+      const date = new Date(tx.created_at).toLocaleString('es-GT');
+      const partnerCode = tx.partners?.partner_code || 'N/A';
+      const partnerName = tx.partners?.name || 'Sistema / Admin';
+      
+      let tipoLabel = tx.tipo;
+      if (tx.tipo === 'deposit') tipoLabel = 'Aportacion';
+      else if (tx.tipo === 'payment') tipoLabel = 'Consumo';
+      else if (tx.tipo === 'withdrawal') tipoLabel = 'Retiro';
+      else if (tx.tipo === 'referral_commission') tipoLabel = 'Comision Red';
+      else if (tx.tipo === 'transfer_to_main') tipoLabel = 'Traspaso Principal';
+
+      return [
+        date,
+        partnerCode,
+        partnerName,
+        tipoLabel,
+        tx.reference || '',
+        tx.description || '',
+        tx.amount
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [
+      headers.join(','), 
+      ...rows.map(r => r.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Libro_Mayor_YouBox_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    await onRefresh();
+    setIsRefreshing(false);
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-brand-gray-dark">Control de Capital y Libro Mayor</h1>
+          <p className="text-gray-400 text-sm">Monitoreo de aportaciones de socios, consumos, y saldos globales en tiempo real.</p>
+        </div>
+        <button 
+          onClick={handleManualRefresh}
+          disabled={isRefreshing}
+          className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-gray-500 hover:text-brand-gray-dark transition-all shadow-sm hover:shadow flex items-center gap-2 text-xs font-black disabled:opacity-50"
+        >
+          <TrendingUp size={14} className={cn("text-brand-orange", isRefreshing && "animate-spin")} />
+          {isRefreshing ? 'Actualizar' : 'Actualizar Datos'}
+        </button>
+      </div>
+
+      {/* Metrics Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Confirmed Deposits */}
+        <div className="glass-card p-6 shadow-sm border-gray-100 relative overflow-hidden flex flex-col justify-between min-h-[140px]">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest leading-none mb-2">Aportaciones (Depósitos)</p>
+              <h3 className="text-3xl font-black text-brand-gray-dark tracking-tight">Q{totalDeposits.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+            </div>
+            <div className="p-3 bg-green-50 rounded-xl text-green-600 border border-green-100">
+              <ArrowUpRight size={20} />
+            </div>
+          </div>
+          <p className="text-[10px] text-green-600 font-bold mt-4 flex items-center gap-1">
+            <span>●</span> Solo depósitos aprobados y confirmados
+          </p>
+        </div>
+
+        {/* Consumos */}
+        <div className="glass-card p-6 shadow-sm border-gray-100 relative overflow-hidden flex flex-col justify-between min-h-[140px]">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest leading-none mb-2">Consumos (Utilizado)</p>
+              <h3 className="text-3xl font-black text-brand-gray-dark tracking-tight">Q{totalUtilizado.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+            </div>
+            <div className="p-3 bg-amber-50 rounded-xl text-brand-orange border border-amber-100">
+              <ArrowDownLeft size={20} />
+            </div>
+          </div>
+          <p className="text-[10px] text-brand-orange font-bold mt-4 flex items-center gap-1">
+            <span>●</span> Fletes pagados y retiros completados
+          </p>
+        </div>
+
+        {/* Circulating Wallet Balances */}
+        <div className="glass-card p-6 shadow-sm border-gray-100 relative overflow-hidden flex flex-col justify-between min-h-[140px]">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest leading-none mb-2">Saldo en Billeteras</p>
+              <h3 className="text-3xl font-black text-brand-gray-dark tracking-tight">Q{totalSaldosBilleteras.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+            </div>
+            <div className="p-3 bg-blue-50 rounded-xl text-blue-600 border border-blue-100">
+              <Wallet size={20} />
+            </div>
+          </div>
+          <p className="text-[10px] text-blue-600 font-bold mt-4 flex items-center gap-1">
+            <span>●</span> Capital circulante neto de socios activos
+          </p>
+        </div>
+      </div>
+
+      {/* Analytics & Executive Summary */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Trend AreaChart */}
+        <div className="lg:col-span-2 glass-card p-6 flex flex-col justify-between shadow-sm border-gray-100">
+          <div>
+            <h3 className="font-bold text-lg text-brand-gray-dark mb-1">Tendencia de Saldos</h3>
+            <p className="text-xs text-gray-400 mb-6">Comparativa diaria de flujo de aportaciones y consumos.</p>
+          </div>
+          <div className="h-64 w-full flex items-center justify-center">
+            {hasTrendData ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData}>
+                  <defs>
+                    <linearGradient id="colorDeposits" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorPayments" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#F59E0B" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#00000005" vertical={false} />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#D1D5DB" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    axisLine={false} 
+                  />
+                  <YAxis 
+                    stroke="#D1D5DB" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    axisLine={false} 
+                    tickFormatter={(value) => `Q${value}`}
+                  />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}
+                    itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    name="Aportaciones"
+                    dataKey="deposits" 
+                    stroke="#10B981" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorDeposits)" 
+                  />
+                  <Area 
+                    type="monotone" 
+                    name="Consumos"
+                    dataKey="payments" 
+                    stroke="#F59E0B" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorPayments)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center p-6 space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400">
+                  <BarChart3 size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-brand-gray-dark">Sin datos de tendencia suficientes</p>
+                  <p className="text-xs text-gray-400 max-w-[280px] mt-1">Se requieren transacciones confirmadas en al menos 2 días distintos para trazar tendencias.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Executive Summary */}
+        <div className="glass-card p-6 flex flex-col justify-between shadow-sm border-gray-100">
+          <div>
+            <h3 className="font-bold text-lg text-brand-gray-dark mb-1">Resumen Ejecutivo</h3>
+            <p className="text-xs text-gray-400 mb-6">Métricas comerciales y operacionales clave.</p>
+          </div>
+          
+          <div className="space-y-6 flex-1 flex flex-col justify-center">
+            {/* Tasa de Consumo */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-end text-xs">
+                <span className="text-gray-400 uppercase font-black tracking-widest">Tasa de Consumo</span>
+                <span className="font-black text-brand-gray-dark">{consumptionRate.toFixed(1)}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-brand-orange transition-all duration-500" 
+                  style={{ width: `${Math.min(consumptionRate, 100)}%` }} 
+                />
+              </div>
+              <p className="text-[10px] text-gray-400">Porcentaje de aportaciones convertido a fletes o retiros.</p>
+            </div>
+
+            {/* Total Transacciones */}
+            <div className="flex justify-between items-center py-3 border-y border-gray-100">
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest leading-none mb-1">Transacciones Totales</p>
+                <p className="text-xs text-gray-500">Volumen acumulado en el Libro Mayor</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xl font-black text-brand-gray-dark">{totalTransactionsCount}</p>
+                <p className="text-[10px] text-gray-400">operaciones</p>
+              </div>
+            </div>
+
+            {/* Promedio de Operacion */}
+            <div className="flex justify-between items-center py-1">
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest leading-none mb-1">Promedio de Operación</p>
+                <p className="text-xs text-gray-500">Ticket promedio transaccionado</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xl font-black text-brand-gray-dark">Q{averageTransactionValue.toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-[10px] text-gray-400">por movimiento</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Operations Ledger Card */}
+      <div className="glass-card shadow-sm border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h3 className="font-bold text-lg text-brand-gray-dark">Libro Mayor de Operaciones</h3>
+            <p className="text-xs text-gray-400">Registro histórico auditado de todas las transacciones del sistema.</p>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            {/* Search Input */}
+            <div className="relative flex-1 sm:w-64">
+              <input 
+                type="text"
+                placeholder="Buscar socio, referencia..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-3 pr-8 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange focus:border-brand-orange placeholder:text-gray-300"
+              />
+            </div>
+
+            {/* Type Filter Dropdown */}
+            <select
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-brand-orange focus:border-brand-orange bg-white text-gray-600 font-bold"
+            >
+              <option value="all">Todos los Movimientos</option>
+              <option value="deposit">Aportación (Depósito)</option>
+              <option value="payment">Consumo (Pago Flete)</option>
+              <option value="withdrawal">Retiro</option>
+              <option value="referral_commission">Comisión de Red</option>
+              <option value="transfer_to_main">Traspaso a Wallet</option>
+            </select>
+
+            {/* Export CSV Button */}
+            <button 
+              onClick={handleExportCSV}
+              className="px-3 py-2 bg-brand-orange hover:bg-brand-orange-dark text-white rounded-xl text-xs font-black transition-colors flex items-center justify-center gap-2 shadow-sm shadow-brand-orange/20"
+            >
+              <Download size={14} />
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        {/* Ledger Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100 text-[10px] text-gray-400 font-black uppercase tracking-widest">
+                <th className="px-6 py-4">Fecha / Hora</th>
+                <th className="px-6 py-4">Socio</th>
+                <th className="px-6 py-4">Tipo</th>
+                <th className="px-6 py-4">Referencia</th>
+                <th className="px-6 py-4">Descripción</th>
+                <th className="px-6 py-4 text-right">Monto</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 text-xs">
+              {filteredTransactions.length > 0 ? (
+                filteredTransactions.map((tx) => {
+                  const isDeposit = tx.tipo === 'deposit';
+                  const isPositive = tx.tipo === 'deposit' || tx.tipo === 'referral_commission';
+                  
+                  return (
+                    <tr key={tx.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4 text-gray-500 font-medium whitespace-nowrap">
+                        {new Date(tx.created_at).toLocaleString('es-GT', { 
+                          day: '2-digit', 
+                          month: '2-digit', 
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="font-bold text-brand-gray-dark">{tx.partners?.name || 'Sistema'}</div>
+                        <div className="text-[10px] text-gray-400 font-black">{tx.partners?.partner_code || 'ADMIN'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {tx.tipo === 'deposit' && (
+                          <span className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-[10px] font-black border border-green-100">
+                            Aportación
+                          </span>
+                        )}
+                        {tx.tipo === 'payment' && (
+                          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-black border border-amber-100">
+                            Consumo (Pago)
+                          </span>
+                        )}
+                        {tx.tipo === 'withdrawal' && (
+                          <span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full text-[10px] font-black border border-purple-100">
+                            Retiro
+                          </span>
+                        )}
+                        {tx.tipo === 'referral_commission' && (
+                          <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black border border-blue-100">
+                            Comisión Red
+                          </span>
+                        )}
+                        {tx.tipo === 'transfer_to_main' && (
+                          <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-[10px] font-black border border-indigo-100">
+                            Traspaso Wallet
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-gray-500 whitespace-nowrap">
+                        {tx.reference || '-'}
+                      </td>
+                      <td className="px-6 py-4 text-gray-400 max-w-xs truncate" title={tx.description}>
+                        {tx.description}
+                      </td>
+                      <td className={cn(
+                        "px-6 py-4 text-right font-black whitespace-nowrap text-sm",
+                        isPositive ? "text-green-600" : "text-red-500"
+                      )}>
+                        {isPositive ? '+' : '-'}Q{Math.abs(Number(tx.amount) || 0).toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                    No se encontraron movimientos que coincidan con la búsqueda.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3600,6 +3685,12 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
     }
   };
 
+  const handleDemoLogin = async (demoEmail: string, demoPassword: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    await onLogin(demoEmail, demoPassword);
+  }
+
   return (
     <motion.form 
       initial={{ opacity: 0, x: -20 }}
@@ -3644,6 +3735,14 @@ function LoginForm({ onLogin }: { onLogin: (email: string, password?: string) =>
       <button type="submit" className="btn-primary w-full py-4 text-base font-black shadow-lg">
         Ingresar
       </button>
+
+      <div className="text-center">
+        <p className="text-[10px] text-gray-400 leading-relaxed">
+          <strong>Demo rápido:</strong> haz clic en <br/>
+          <button type="button" onClick={() => handleDemoLogin('juan@example.com', '+502 5555-1234')} className="font-mono text-brand-orange hover:underline mt-1">juan@example.com</button> o <br/>
+          <button type="button" onClick={() => handleDemoLogin('admin@youboxgt.com', 'Youbox2026')} className="font-mono text-brand-orange hover:underline">admin@youboxgt.com</button>
+        </p>
+      </div>
     </motion.form>
   );
 }
@@ -3730,19 +3829,6 @@ function RegisterForm({ onRegister }: { onRegister: (name: string, email: string
       {/* Deposit Receipt Upload */}
       <div className="space-y-2">
         <label className="text-[10px] text-gray-400 font-black uppercase tracking-[.2em] pl-1">Boleta de Deposito (Q500.00) <span className="text-red-400">*</span></label>
-        
-        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-3.5 text-xs text-gray-500">
-          <p className="font-black text-gray-600 uppercase tracking-wider text-[9px] mb-1">Cuentas Bancarias de YouBox:</p>
-          <div className="flex justify-between gap-4 font-bold mt-1">
-            <div>
-              <span className="text-gray-400">BI:</span> <span className="text-brand-gray-dark font-mono">1990018267</span>
-            </div>
-            <div>
-              <span className="text-gray-400">Banrural:</span> <span className="text-brand-gray-dark font-mono">3511042477</span>
-            </div>
-          </div>
-        </div>
-
         <div className="relative group">
           <input 
             type="file" 
